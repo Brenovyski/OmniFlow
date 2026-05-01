@@ -12,7 +12,7 @@ A personal finance web app for tracking expenses, earnings, and investments — 
 
 OmniFlow is an admin-style dashboard that gives one person a full picture of their money in one place: cash flow, category breakdowns, account balances, and investment positions. It is web-first and PWA-ready, with the option to wrap it in Capacitor for native iOS/Android later if needed.
 
-> flows in (earnings), flows out (expenses), flows around (investments). Clean, modern, memorable.
+> Clean, modern, memorable.
 
 ## Goals
 
