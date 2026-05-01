@@ -15,6 +15,7 @@ import { useUIStore } from "@/stores/ui-store";
 const TITLES: Record<string, string> = {
   "/": "Dashboard",
   "/transactions": "Transactions",
+  "/insights": "Insights",
   "/investments": "Investments",
   "/categories": "Categories",
   "/settings": "Settings",

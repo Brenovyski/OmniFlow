@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, type ReactNode } from "react";
 
+import { AuthProvider } from "@/features/auth/auth-context";
 import { useUIStore } from "@/stores/ui-store";
 
 const queryClient = new QueryClient({
@@ -23,7 +24,9 @@ function ThemeSync({ children }: { children: ReactNode }) {
 export function AppProviders({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeSync>{children}</ThemeSync>
+      <AuthProvider>
+        <ThemeSync>{children}</ThemeSync>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }
