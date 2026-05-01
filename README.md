@@ -1,10 +1,18 @@
-# OmniFlow
+# ⚡ OmniFlow — Personal Finance, Built Solo
 
-> flows in (earnings), flows out (expenses), flows around (investments). Clean, modern, memorable.
+<p align="center">
+  <img src="./assets/banner.png" alt="OmniFlow — flows in, flows out, flows around" width="820"/>
+</p>
+
+<p align="center">
+  <strong>flows in</strong> (earnings) &nbsp;·&nbsp; <strong>flows out</strong> (expenses) &nbsp;·&nbsp; <strong>flows around</strong> (investments)
+</p>
 
 A personal finance web app for tracking expenses, earnings, and investments — built solo, for a single user.
 
 OmniFlow is an admin-style dashboard that gives one person a full picture of their money in one place: cash flow, category breakdowns, account balances, and investment positions. It is web-first and PWA-ready, with the option to wrap it in Capacitor for native iOS/Android later if needed.
+
+> flows in (earnings), flows out (expenses), flows around (investments). Clean, modern, memorable.
 
 ## Goals
 
