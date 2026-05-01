@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --brand: 48 96% 53%;
+    --brand-press: 43 96% 41%;
+    --brand-foreground: 24 10% 4%;
+
+    --background: 60 9% 98%;
+    --surface: 0 0% 100%;
+    --surface-2: 60 5% 96%;
+
+    --border: 20 6% 90%;
+    --border-strong: 24 6% 83%;
+
+    --text: 24 10% 4%;
+    --text-muted: 33 6% 32%;
+    --text-faint: 25 5% 64%;
+
+    --income: 142 71% 29%;
+    --expense: 0 74% 42%;
+    --invest: 262 70% 50%;
+
+    --ring: 48 96% 53%;
+  }
+
+  .dark {
+    --brand: 48 100% 70%;
+    --brand-press: 45 93% 47%;
+    --brand-foreground: 24 10% 4%;
+
+    --background: 213 31% 6%;
+    --surface: 212 24% 11%;
+    --surface-2: 213 22% 13%;
+
+    --border: 213 25% 16%;
+    --border-strong: 214 21% 21%;
+
+    --text: 60 5% 96%;
+    --text-muted: 25 5% 64%;
+    --text-faint: 220 9% 46%;
+
+    --income: 142 69% 58%;
+    --expense: 0 91% 71%;
+    --invest: 258 90% 76%;
+
+    --ring: 48 100% 70%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    @apply h-full;
+  }
+
+  body {
+    @apply bg-background text-text font-sans antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+}

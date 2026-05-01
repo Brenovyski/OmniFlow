@@ -103,8 +103,19 @@ supabase/
 
 ## Installation
 
-*To be documented after first scaffolding pass.*
+Requirements: Node 20+ and [pnpm](https://pnpm.io).
+
+```bash
+pnpm install
+pnpm dev          # http://localhost:5173
+pnpm typecheck    # tsc -b --noEmit
+pnpm build        # production build into dist/
+```
+
+The Claude Design visual prototype lives under `prototype/` — open `prototype/OmniFlow.html` in a browser as a static visual reference.
 
 ## Status
 
-Pre-scaffolding. The next step is to set up the Vite + React + TS + Tailwind + shadcn/ui foundation, configure Supabase, write the initial migration, and stand up the admin layout shell with placeholder routes.
+Step 1 shipped: Vite + React + TS + Tailwind + shadcn/ui foundation, design tokens lifted from the prototype, admin layout shell (collapsible sidebar, topbar with theme toggle), placeholder routes for Dashboard / Transactions / Investments / Categories / Settings, login route, and a 404 page. State boundaries are wired: Zustand for UI state, TanStack Query provider mounted (no queries yet).
+
+Next: Supabase client, migration 001 with RLS for `accounts`, `categories`, `transactions`, and the real auth flow on the login route.
