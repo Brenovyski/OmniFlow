@@ -123,6 +123,8 @@ supabase db push
 
 ## Status
 
+> **Implementation plan:** see [`implementation_plan.md`](./implementation_plan.md). Future sessions must consult it before starting any step from the Roadmap below. If reality drifts from the plan during implementation, edit both files in the same commit.
+
 Step 3 (transactions) is in. Done so far:
 
 - **Step 1** — Scaffold: Vite + React + TS + Tailwind + shadcn/ui, admin layout shell with collapsible sidebar, theme toggle, placeholder routes.
@@ -130,6 +132,27 @@ Step 3 (transactions) is in. Done so far:
 - **Step 3a** — Transaction creation: react-hook-form + zod, dialog opened from sidebar Quick add / topbar New / Transactions page button / `N` keyboard shortcut, optimistic create via TanStack Query.
 - **Step 3b** — Transactions table: filter chips (type + Source) with URL-bound state, edit dialog, soft delete with confirm, CSV export, dynamic uncategorized badge in sidebar.
 - **English-by-default pass** — every app-controlled string is English; only user-typed data lives in whatever language the user types. `parseAmountToCents` accepts both en-US and pt-BR formats so input is forgiving.
-- **Migration 002** (categories.type + English seed rename + richer starter set) is written and committed but **not yet applied** to the hosted Supabase project. Apply it via `supabase db push` after the one-time CLI setup documented above.
+- **Migrations 001 + 002 applied** to the hosted project via `supabase db push`. CLI is set up and linked. Future migrations follow the same workflow.
 
-Next step (step 4) is the Dashboard: KPI cards, charts (likely Recharts), date-range presets, all reading the existing query hooks. Investments and Categories pages are still placeholders and have their own steps after that.
+Next step (step 4) is **Migration 003 + Accounts CRUD + Sonner toasts** — drop `accounts.balance_cents`, add `opening_balance_cents`, add transfer support, create the `account_balances_v` view, build accounts management under a tabbed Settings page, and land Sonner so future mutations have a consistent toast pattern. See `implementation_plan.md` for detail.
+
+## Roadmap
+
+Condensed checklist; flip the box and add a Status bullet when a step lands. Detail lives in `implementation_plan.md` — keep these lines one-liners.
+
+- [ ] **Step 4** — Migration 003 + Accounts CRUD + balance view + Sonner toasts
+- [ ] **Step 5** — Command palette (⌘K) + FAB
+- [ ] **Step 6a** — Dashboard: KPI cards + sparklines + time-range chips
+- [ ] **Step 6b** — Dashboard: cashflow + accounts list + net-worth chart
+- [ ] **Step 7** — Categories page (grid, counts, CRUD)
+- [ ] **Step 8** — Migration 004 + Investments page + holdings
+- [ ] **Step 9** — Insights: calendar heatmap + day breakdown
+- [ ] **Step 10** — Insights: what-if simulator
+- [ ] **Step 11** — Insights: auto-detected pattern cards
+- [ ] **Step 12** — Settings: Profile + Preferences + Data tabs (Accounts tab lands in Step 4)
+- [ ] **Step 13** — Migration 005 + Recurring rules + idempotent materializer
+- [ ] **Step 14** — Migration 006 + Budgets + breach alerts
+- [ ] **Step 15** — Multi-currency display layer
+- [ ] **Step 16** — i18n EN / PT-BR
+- [ ] **Step 17** — PWA (manifest, service worker, install)
+- [ ] **Step 18** — Polish: empty states, 404, skeletons, login redesign
