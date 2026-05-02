@@ -68,9 +68,11 @@ export function TransactionsPage() {
       </div>
 
       <Card className="overflow-hidden">
-        <div className="flex flex-wrap items-center gap-3 border-b border-border px-5 py-3.5">
-          <FilterChips />
-          <div className="ml-auto text-xs text-text-faint">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-5 py-3.5">
+          <div className="min-w-0 flex-1">
+            <FilterChips />
+          </div>
+          <div className="shrink-0 pt-1 text-xs text-text-faint">
             Showing{" "}
             <strong className="text-text-muted">{filtered.length}</strong> of{" "}
             {all.length}

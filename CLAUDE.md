@@ -87,7 +87,49 @@ When implementing features in this repo:
 - RLS is on for every Supabase table from migration 001. New tables ship with policies in the same migration that creates them.
 - Default to: faster path, fewer clicks, clearer money column. When unsure between two designs, the one with less chrome wins.
 - For any decision larger than a single component (new dependency, schema change, new top-level route, new data flow), surface the call to the user before writing code.
+- **Always update the `## Status` section below whenever a step is completed** (or a meaningful slice within a step). The Status block is the one durable record of how far the project has come — let it drift and future sessions start cold. Update it in the same commit that ships the work.
+
+## Database migrations — Supabase CLI workflow
+
+Migrations live in `supabase/migrations/` as numbered SQL files (`001_init.sql`, `002_category_types.sql`, …). They are applied to the hosted project (`mkwncqhhnkhcznauzveq`) via the Supabase CLI, not by pasting into the dashboard SQL Editor.
+
+**One-time setup (user runs locally — needs DB password):**
+
+```powershell
+# Install (Windows, via Scoop — recommended by Supabase):
+scoop bucket add supabase https://github.com/supabase/scoop-bucket.git
+scoop install supabase
+
+# Link this repo to the hosted project:
+supabase link --project-ref mkwncqhhnkhcznauzveq
+
+# Mark 001 as already applied (it was applied manually before the CLI was wired):
+supabase migration repair --status applied 001
+```
+
+**Per-migration workflow (Claude can run after the one-time setup):**
+
+```powershell
+supabase db push
+```
+
+`db push` applies any migration files in `supabase/migrations/` whose version is not yet recorded in the project's `supabase_migrations.schema_migrations` table.
+
+**Rules:**
+- Never edit a migration that has already been pushed to the hosted project. Ship a new numbered file instead.
+- New tables ship with their RLS policies in the same migration that creates them.
+- Idempotent where reasonable (`if not exists`, `where not exists`, conditional `update`s) so re-runs during development don't crater data.
+- The `.env` `VITE_SUPABASE_*` variables are for the *runtime client*. The CLI uses its own session stored after `supabase link` and does not read `.env`.
 
 ## Status
 
-Pre-scaffolding. Next step is the Vite + React + TS + Tailwind + shadcn/ui foundation, Supabase client + initial migration, the admin layout shell with collapsible sidebar, and placeholder routes for Dashboard / Transactions / Investments / Categories / Settings.
+Step 3 (transactions) is in. Done so far:
+
+- **Step 1** — Scaffold: Vite + React + TS + Tailwind + shadcn/ui, admin layout shell with collapsible sidebar, theme toggle, placeholder routes.
+- **Step 2** — Supabase + auth: hosted project wired, migration `001_init.sql` (accounts/categories/transactions, RLS, updated_at + new-user seed triggers), email+password login/signup, `<RequireAuth>` guards, typed query hooks.
+- **Step 3a** — Transaction creation: react-hook-form + zod, dialog opened from sidebar Quick add / topbar New / Transactions page button / `N` keyboard shortcut, optimistic create via TanStack Query.
+- **Step 3b** — Transactions table: filter chips (type + Source) with URL-bound state, edit dialog, soft delete with confirm, CSV export, dynamic uncategorized badge in sidebar.
+- **English-by-default pass** — every app-controlled string is English; only user-typed data lives in whatever language the user types. `parseAmountToCents` accepts both en-US and pt-BR formats so input is forgiving.
+- **Migration 002** (categories.type + English seed rename + richer starter set) is written and committed but **not yet applied** to the hosted Supabase project. Apply it via `supabase db push` after the one-time CLI setup documented above.
+
+Next step (step 4) is the Dashboard: KPI cards, charts (likely Recharts), date-range presets, all reading the existing query hooks. Investments and Categories pages are still placeholders and have their own steps after that.

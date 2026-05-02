@@ -18,7 +18,7 @@ export function fmtMoney(
       body = (v / 1000).toFixed(1).replace(/\.0$/, "") + "k";
     }
   } else {
-    body = v.toLocaleString("pt-BR", {
+    body = v.toLocaleString("en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
@@ -32,9 +32,9 @@ export function parseISODate(iso: string): Date {
   return new Date(iso + "T00:00:00");
 }
 
-/** Format a YYYY-MM-DD ISO date as "30 abr". */
+/** Format a YYYY-MM-DD ISO date as "Apr 30". */
 export function fmtDate(iso: string): string {
-  return parseISODate(iso).toLocaleDateString("pt-BR", {
+  return parseISODate(iso).toLocaleDateString("en-US", {
     day: "2-digit",
     month: "short",
   });
@@ -48,16 +48,34 @@ export function toISODate(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-/** Parse a user-typed amount like "12,50" or "12.50" or "1.234,56" into cents. */
+/**
+ * Parse a user-typed amount into bigint cents.
+ *
+ * Accepts both en-US ("12.50", "1,234.56") and pt-BR ("12,50", "1.234,56")
+ * formats so users can type whichever feels natural. Disambiguates by
+ * looking at which separator is rightmost: that one is treated as the
+ * decimal point.
+ */
 export function parseAmountToCents(input: string): number | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
-  // Drop currency symbols and spaces; treat "," as decimal separator.
-  const cleaned = trimmed
-    .replace(/[^\d,.-]/g, "")
-    .replace(/\.(?=\d{3}(\D|$))/g, "") // strip thousand-separator dots
-    .replace(",", ".");
-  const num = Number(cleaned);
+  const cleaned = trimmed.replace(/[^\d,.\-]/g, "");
+  if (!cleaned) return null;
+
+  const lastComma = cleaned.lastIndexOf(",");
+  const lastDot = cleaned.lastIndexOf(".");
+  let normalized: string;
+  if (lastComma === -1 && lastDot === -1) {
+    normalized = cleaned;
+  } else if (lastComma > lastDot) {
+    // pt-BR: "1.234,56" — dots are thousand separators, comma is decimal.
+    normalized = cleaned.replace(/\./g, "").replace(",", ".");
+  } else {
+    // en-US: "1,234.56" — commas are thousand separators, dot is decimal.
+    normalized = cleaned.replace(/,/g, "");
+  }
+
+  const num = Number(normalized);
   if (!Number.isFinite(num) || num < 0) return null;
   return Math.round(num * 100);
 }

@@ -48,32 +48,36 @@ export function FilterChips() {
   const accounts = accountsQ.data ?? [];
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <Chip
-        active={filter.type === "all"}
-        onClick={() => setFilter({ type: "all" })}
-      >
-        All
-      </Chip>
-      {TRANSACTION_TYPES.map((t) => (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Chip
-          key={t}
-          active={filter.type === t}
-          onClick={() => setFilter({ type: t })}
+          active={filter.type === "all"}
+          onClick={() => setFilter({ type: "all" })}
         >
-          <span className={cn("h-1.5 w-1.5 rounded-full", TYPE_DOT[t])} />
-          {TYPE_LABEL[t]}
+          All
         </Chip>
-      ))}
+        {TRANSACTION_TYPES.map((t) => (
+          <Chip
+            key={t}
+            active={filter.type === t}
+            onClick={() => setFilter({ type: t })}
+          >
+            <span className={cn("h-1.5 w-1.5 rounded-full", TYPE_DOT[t])} />
+            {TYPE_LABEL[t]}
+          </Chip>
+        ))}
+      </div>
 
       {accounts.length > 0 && (
-        <>
-          <span className="mx-1 h-4 w-px bg-border" />
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-text-faint">
+            Source
+          </span>
           <Chip
             active={filter.accountId === "all"}
             onClick={() => setFilter({ accountId: "all" })}
           >
-            All accounts
+            All sources
           </Chip>
           {accounts.map((a) => (
             <Chip
@@ -90,7 +94,7 @@ export function FilterChips() {
               {a.short_name ?? a.name}
             </Chip>
           ))}
-        </>
+        </div>
       )}
     </div>
   );

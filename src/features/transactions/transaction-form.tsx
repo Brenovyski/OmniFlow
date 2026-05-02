@@ -56,7 +56,7 @@ interface Props {
 }
 
 function centsToInput(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", {
+  return (cents / 100).toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -171,7 +171,7 @@ export function TransactionForm({
           <Input
             id="tx-amount"
             inputMode="decimal"
-            placeholder="0,00"
+            placeholder="0.00"
             {...form.register("amount")}
           />
           {errors.amount && (
@@ -184,7 +184,7 @@ export function TransactionForm({
         <Label htmlFor="tx-description">Description</Label>
         <Input
           id="tx-description"
-          placeholder="Pão de Açúcar, Salário, …"
+          placeholder="Whole Foods, Salary, …"
           {...form.register("description")}
         />
         {errors.description && (
@@ -196,7 +196,7 @@ export function TransactionForm({
 
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="tx-account">Account</Label>
+          <Label htmlFor="tx-account">Source</Label>
           <Controller
             control={form.control}
             name="account_id"

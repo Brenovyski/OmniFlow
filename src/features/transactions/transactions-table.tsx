@@ -65,7 +65,7 @@ export function TransactionsTable({ rows, accounts, categories }: Props) {
               <Th className="w-[88px]">Date</Th>
               <Th>Description</Th>
               <Th>Category</Th>
-              <Th>Account</Th>
+              <Th>Source</Th>
               <Th>Type</Th>
               <Th className="text-right">Amount</Th>
               <Th className="w-10" />
