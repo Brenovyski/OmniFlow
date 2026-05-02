@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -104,6 +104,23 @@ export function TransactionForm({
       form.setValue("account_id", accountsQ.data[0]!.id);
     }
   }, [accountsQ.data, form, initial]);
+
+  // Filter the category dropdown to the current transaction type.
+  const selectedType = form.watch("type");
+  const categoriesForType = useMemo(
+    () => (categoriesQ.data ?? []).filter((c) => c.type === selectedType),
+    [categoriesQ.data, selectedType],
+  );
+
+  // When the type changes, drop a category that doesn't belong to the new type.
+  useEffect(() => {
+    const currentId = form.getValues("category_id");
+    if (currentId === NONE_CATEGORY) return;
+    const cat = (categoriesQ.data ?? []).find((c) => c.id === currentId);
+    if (cat && cat.type !== selectedType) {
+      form.setValue("category_id", NONE_CATEGORY);
+    }
+  }, [selectedType, categoriesQ.data, form]);
 
   const handleSubmit = form.handleSubmit((values) => {
     const cents = parseAmountToCents(values.amount);
@@ -217,7 +234,7 @@ export function TransactionForm({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={NONE_CATEGORY}>No category</SelectItem>
-                  {(categoriesQ.data ?? []).map((c) => (
+                  {categoriesForType.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.name}
                     </SelectItem>
