@@ -10,6 +10,8 @@ import {
 import { useLocation } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import { cmdSymbol } from "@/lib/platform";
+import { useModalStore } from "@/stores/modal-store";
 import { useUIStore } from "@/stores/ui-store";
 
 const TITLES: Record<string, string> = {
@@ -26,6 +28,7 @@ export function Topbar() {
   const theme = useUIStore((s) => s.theme);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const toggleTheme = useUIStore((s) => s.toggleTheme);
+  const openNewTx = useModalStore((s) => s.openNewTx);
   const title = TITLES[pathname] ?? "OmniFlow";
 
   return (
@@ -52,7 +55,7 @@ export function Topbar() {
         <Search className="size-3.5" />
         <span className="text-[13px]">Search transactions, categories…</span>
         <span className="ml-auto rounded border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[10.5px]">
-          ⌘K
+          {cmdSymbol} K
         </span>
       </button>
 
@@ -72,7 +75,7 @@ export function Topbar() {
         <Button variant="ghost" size="icon" title="Notifications">
           <Bell className="size-4" />
         </Button>
-        <Button>
+        <Button onClick={openNewTx}>
           <Plus className="size-3.5" />
           New
         </Button>

@@ -12,8 +12,10 @@ import {
 import { NavLink } from "react-router-dom";
 
 import { useAuth } from "@/features/auth/auth-context";
+import { cmdSymbol } from "@/lib/platform";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
+import { useModalStore } from "@/stores/modal-store";
 import { useUIStore } from "@/stores/ui-store";
 
 interface NavEntry {
@@ -26,7 +28,7 @@ interface NavEntry {
 
 const WORKSPACE_NAV: NavEntry[] = [
   { to: "/", label: "Dashboard", icon: LayoutGrid, end: true },
-  { to: "/transactions", label: "Transactions", icon: ArrowDownUp, badge: 18 },
+  { to: "/transactions", label: "Transactions", icon: ArrowDownUp },
   { to: "/insights", label: "Insights", icon: Sparkles },
   { to: "/investments", label: "Investments", icon: TrendingUp },
   { to: "/categories", label: "Categories", icon: Tags },
@@ -41,6 +43,7 @@ export function Sidebar() {
   const { user } = useAuth();
   const email = user?.email ?? "";
   const initial = email ? email[0]!.toUpperCase() : "?";
+  const openNewTx = useModalStore((s) => s.openNewTx);
   const handleSignOut = () => {
     void supabase.auth.signOut();
   };
@@ -69,6 +72,7 @@ export function Sidebar() {
       <nav className="flex-1 overflow-y-auto px-2.5 py-3">
         <button
           type="button"
+          onClick={openNewTx}
           className={cn(
             "mb-1 flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-[13.5px] font-medium text-text-muted transition-colors hover:bg-surface-2 hover:text-text",
             collapsed && "justify-center px-2",
@@ -79,7 +83,7 @@ export function Sidebar() {
             <>
               <span className="flex-1 text-left">Quick add</span>
               <span className="rounded border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-text-faint">
-                ⌘N
+                {cmdSymbol} N
               </span>
             </>
           )}

@@ -1,7 +1,10 @@
 import { Outlet } from "react-router-dom";
 
+import { FloatingActionButton } from "@/components/layout/floating-action-button";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
+import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
+import { TransactionDialog } from "@/features/transactions/transaction-dialog";
 import { cn } from "@/lib/utils";
 import { useUIStore } from "@/stores/ui-store";
 
@@ -21,6 +24,9 @@ export function AdminLayout() {
           <Outlet />
         </div>
       </main>
+      <FloatingActionButton />
+      <TransactionDialog />
+      <KeyboardShortcuts />
     </div>
   );
 }
