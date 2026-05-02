@@ -19,6 +19,11 @@ export interface NewTransactionInput {
   currency?: string;
 }
 
+export interface UpdateTransactionInput {
+  id: string;
+  patch: Partial<NewTransactionInput>;
+}
+
 export function useCreateTransaction() {
   const qc = useQueryClient();
   const { user } = useAuth();
@@ -70,6 +75,76 @@ export function useCreateTransaction() {
       return { prev };
     },
     onError: (_err, _input, ctx) => {
+      if (ctx?.prev !== undefined) {
+        qc.setQueryData(["transactions", userId], ctx.prev);
+      }
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["transactions", userId] });
+    },
+  });
+}
+
+export function useUpdateTransaction() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  const userId = user?.id;
+
+  return useMutation({
+    mutationFn: async ({ id, patch }: UpdateTransactionInput) => {
+      const { data, error } = await supabase
+        .from("transactions")
+        .update(patch)
+        .eq("id", id)
+        .select("*")
+        .single();
+      if (error) throw error;
+      return TransactionSchema.parse(data);
+    },
+    onMutate: async ({ id, patch }) => {
+      const key = ["transactions", userId];
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<Transaction[]>(key);
+      qc.setQueryData<Transaction[]>(key, (old) =>
+        (old ?? []).map((tx) => (tx.id === id ? { ...tx, ...patch } : tx)),
+      );
+      return { prev };
+    },
+    onError: (_err, _input, ctx) => {
+      if (ctx?.prev !== undefined) {
+        qc.setQueryData(["transactions", userId], ctx.prev);
+      }
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["transactions", userId] });
+    },
+  });
+}
+
+export function useSoftDeleteTransaction() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  const userId = user?.id;
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("transactions")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) throw error;
+      return id;
+    },
+    onMutate: async (id) => {
+      const key = ["transactions", userId];
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<Transaction[]>(key);
+      qc.setQueryData<Transaction[]>(key, (old) =>
+        (old ?? []).filter((tx) => tx.id !== id),
+      );
+      return { prev };
+    },
+    onError: (_err, _id, ctx) => {
       if (ctx?.prev !== undefined) {
         qc.setQueryData(["transactions", userId], ctx.prev);
       }

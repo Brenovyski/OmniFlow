@@ -12,6 +12,7 @@ import {
 import { NavLink } from "react-router-dom";
 
 import { useAuth } from "@/features/auth/auth-context";
+import { useTransactions } from "@/features/transactions/queries";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { useModalStore } from "@/stores/modal-store";
@@ -25,7 +26,7 @@ interface NavEntry {
   badge?: string | number;
 }
 
-const WORKSPACE_NAV: NavEntry[] = [
+const STATIC_WORKSPACE_NAV: NavEntry[] = [
   { to: "/", label: "Dashboard", icon: LayoutGrid, end: true },
   { to: "/transactions", label: "Transactions", icon: ArrowDownUp },
   { to: "/insights", label: "Insights", icon: Sparkles },
@@ -43,6 +44,15 @@ export function Sidebar() {
   const email = user?.email ?? "";
   const initial = email ? email[0]!.toUpperCase() : "?";
   const openNewTx = useModalStore((s) => s.openNewTx);
+  const transactions = useTransactions();
+  const uncategorizedCount = (transactions.data ?? []).filter(
+    (tx) => tx.category_id === null,
+  ).length;
+  const workspaceNav: NavEntry[] = STATIC_WORKSPACE_NAV.map((entry) =>
+    entry.to === "/transactions" && uncategorizedCount > 0
+      ? { ...entry, badge: uncategorizedCount }
+      : entry,
+  );
   const handleSignOut = () => {
     void supabase.auth.signOut();
   };
@@ -91,7 +101,7 @@ export function Sidebar() {
         {!collapsed && (
           <SectionHeader>Workspace</SectionHeader>
         )}
-        {WORKSPACE_NAV.map((entry) => (
+        {workspaceNav.map((entry) => (
           <NavItem key={entry.to} entry={entry} collapsed={collapsed} />
         ))}
 
@@ -194,7 +204,15 @@ function NavItem({
             <>
               <span className="flex-1">{label}</span>
               {badge !== undefined && (
-                <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[10.5px] font-semibold text-text-muted">
+                <span
+                  className={cn(
+                    "rounded-full px-1.5 py-0.5 text-[10.5px] font-semibold",
+                    isActive
+                      ? "bg-brand text-brand-foreground"
+                      : "bg-surface-2 text-text-muted",
+                  )}
+                  title="Uncategorized transactions"
+                >
                   {badge}
                 </span>
               )}

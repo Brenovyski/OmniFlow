@@ -15,7 +15,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 
 export function KeyboardShortcuts() {
   const openNewTx = useModalStore((s) => s.openNewTx);
-  const newTxOpen = useModalStore((s) => s.newTxOpen);
+  const dialogOpen = useModalStore((s) => s.txDialogOpen);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -23,7 +23,7 @@ export function KeyboardShortcuts() {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.repeat) return;
       if (isTypingTarget(e.target)) return;
-      if (newTxOpen) return;
+      if (dialogOpen) return;
 
       if (e.key.toLowerCase() === "n") {
         e.preventDefault();
@@ -32,7 +32,7 @@ export function KeyboardShortcuts() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [openNewTx, newTxOpen]);
+  }, [openNewTx, dialogOpen]);
 
   return null;
 }

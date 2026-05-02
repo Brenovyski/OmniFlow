@@ -16,8 +16,15 @@ import {
 } from "@/components/ui/select";
 import { useAccounts } from "@/features/accounts/queries";
 import { useCategories } from "@/features/categories/queries";
-import { TRANSACTION_TYPES } from "@/features/transactions/schemas";
-import { parseAmountToCents, toISODate } from "@/lib/format";
+import {
+  TRANSACTION_TYPES,
+  type Transaction,
+} from "@/features/transactions/schemas";
+import {
+  parseAmountToCents,
+  parseISODate,
+  toISODate,
+} from "@/lib/format";
 
 import type { NewTransactionInput } from "./mutations";
 
@@ -41,29 +48,54 @@ const FormSchema = z.object({
 type FormValues = z.infer<typeof FormSchema>;
 
 interface Props {
+  initial?: Transaction | null;
   onSubmit: (input: NewTransactionInput) => void;
   onCancel: () => void;
   submitting?: boolean;
+  submitLabel?: string;
 }
 
-export function TransactionForm({ onSubmit, onCancel, submitting }: Props) {
+function centsToInput(cents: number): string {
+  return (cents / 100).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+export function TransactionForm({
+  initial,
+  onSubmit,
+  onCancel,
+  submitting,
+  submitLabel,
+}: Props) {
   const accountsQ = useAccounts();
   const categoriesQ = useCategories();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(FormSchema),
-    defaultValues: {
-      type: "expense",
-      amount: "",
-      account_id: "",
-      category_id: NONE_CATEGORY,
-      date: new Date(),
-      description: "",
-    },
+    defaultValues: initial
+      ? {
+          type: initial.type,
+          amount: centsToInput(initial.amount_cents),
+          account_id: initial.account_id,
+          category_id: initial.category_id ?? NONE_CATEGORY,
+          date: parseISODate(initial.date),
+          description: initial.description,
+        }
+      : {
+          type: "expense",
+          amount: "",
+          account_id: "",
+          category_id: NONE_CATEGORY,
+          date: new Date(),
+          description: "",
+        },
   });
 
-  // Auto-pick the first account once data loads.
+  // Auto-pick first account on create when accounts load.
   useEffect(() => {
+    if (initial) return;
     if (
       !form.getValues("account_id") &&
       accountsQ.data &&
@@ -71,7 +103,7 @@ export function TransactionForm({ onSubmit, onCancel, submitting }: Props) {
     ) {
       form.setValue("account_id", accountsQ.data[0]!.id);
     }
-  }, [accountsQ.data, form]);
+  }, [accountsQ.data, form, initial]);
 
   const handleSubmit = form.handleSubmit((values) => {
     const cents = parseAmountToCents(values.amount);
@@ -216,7 +248,9 @@ export function TransactionForm({ onSubmit, onCancel, submitting }: Props) {
           Cancel
         </Button>
         <Button type="submit" disabled={submitting}>
-          {submitting ? "Saving…" : "Add transaction"}
+          {submitting
+            ? "Saving…"
+            : (submitLabel ?? (initial ? "Save changes" : "Add transaction"))}
         </Button>
       </div>
     </form>

@@ -7,16 +7,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useCreateTransaction } from "@/features/transactions/mutations";
+import {
+  useCreateTransaction,
+  useUpdateTransaction,
+} from "@/features/transactions/mutations";
 import { TransactionForm } from "@/features/transactions/transaction-form";
 import { useModalStore } from "@/stores/modal-store";
 
 export function TransactionDialog() {
-  const open = useModalStore((s) => s.newTxOpen);
-  const setOpen = useModalStore((s) => s.setNewTxOpen);
-  const closeNewTx = useModalStore((s) => s.closeNewTx);
+  const open = useModalStore((s) => s.txDialogOpen);
+  const setOpen = useModalStore((s) => s.setTxDialogOpen);
+  const close = useModalStore((s) => s.closeTxDialog);
+  const editing = useModalStore((s) => s.editingTx);
   const create = useCreateTransaction();
+  const update = useUpdateTransaction();
   const [error, setError] = useState<string | null>(null);
+
+  const isEdit = editing !== null;
+  const submitting = create.isPending || update.isPending;
 
   return (
     <Dialog
@@ -28,26 +36,36 @@ export function TransactionDialog() {
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>New transaction</DialogTitle>
+          <DialogTitle>
+            {isEdit ? "Edit transaction" : "New transaction"}
+          </DialogTitle>
           <DialogDescription>
-            Log money flowing in, out, or around.
+            {isEdit
+              ? "Update the details below."
+              : "Log money flowing in, out, or around."}
           </DialogDescription>
         </DialogHeader>
         <TransactionForm
-          submitting={create.isPending}
-          onCancel={closeNewTx}
+          initial={editing}
+          submitting={submitting}
+          onCancel={close}
           onSubmit={(input) => {
             setError(null);
-            create.mutate(input, {
-              onSuccess: () => closeNewTx(),
-              onError: (err) =>
-                setError(err instanceof Error ? err.message : "Failed to save"),
-            });
+            const onSuccess = () => close();
+            const onError = (err: unknown) =>
+              setError(err instanceof Error ? err.message : "Failed to save");
+
+            if (editing) {
+              update.mutate(
+                { id: editing.id, patch: input },
+                { onSuccess, onError },
+              );
+            } else {
+              create.mutate(input, { onSuccess, onError });
+            }
           }}
         />
-        {error && (
-          <p className="text-center text-xs text-expense">{error}</p>
-        )}
+        {error && <p className="text-center text-xs text-expense">{error}</p>}
       </DialogContent>
     </Dialog>
   );
