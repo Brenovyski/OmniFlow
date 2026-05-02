@@ -12,7 +12,6 @@ import {
 import { NavLink } from "react-router-dom";
 
 import { useAuth } from "@/features/auth/auth-context";
-import { cmdSymbol } from "@/lib/platform";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { useModalStore } from "@/stores/modal-store";
@@ -83,7 +82,7 @@ export function Sidebar() {
             <>
               <span className="flex-1 text-left">Quick add</span>
               <span className="rounded border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-text-faint">
-                {cmdSymbol} N
+                N
               </span>
             </>
           )}

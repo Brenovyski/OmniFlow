@@ -1,31 +1,38 @@
 import { useEffect } from "react";
 
-import { isCmdKey } from "@/lib/platform";
 import { useModalStore } from "@/stores/modal-store";
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName.toLowerCase();
+  return (
+    tag === "input" ||
+    tag === "textarea" ||
+    tag === "select" ||
+    target.isContentEditable
+  );
+}
 
 export function KeyboardShortcuts() {
   const openNewTx = useModalStore((s) => s.openNewTx);
+  const newTxOpen = useModalStore((s) => s.newTxOpen);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (isCmdKey(e) && e.key.toLowerCase() === "n") {
-        const target = e.target as HTMLElement | null;
-        const tag = target?.tagName.toLowerCase();
-        // Don't hijack typing inside text inputs.
-        if (
-          tag === "input" ||
-          tag === "textarea" ||
-          target?.isContentEditable
-        ) {
-          return;
-        }
+      // Ignore modifier-key combos — those are reserved by the browser/OS.
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.repeat) return;
+      if (isTypingTarget(e.target)) return;
+      if (newTxOpen) return;
+
+      if (e.key.toLowerCase() === "n") {
         e.preventDefault();
         openNewTx();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [openNewTx]);
+  }, [openNewTx, newTxOpen]);
 
   return null;
 }
