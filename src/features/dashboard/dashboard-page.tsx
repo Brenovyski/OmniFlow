@@ -15,9 +15,13 @@ import { fmtDate, fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useModalStore } from "@/stores/modal-store";
 
+import { AccountsList } from "./accounts-list";
+import { CashflowChart } from "./cashflow-chart";
 import { KpiCard } from "./kpi-card";
+import { NetWorthChart } from "./net-worth-chart";
 import { computeRangeStats } from "./stats";
 import { TimeRangeChips, useTimeRange } from "./time-range-chips";
+import { TopSpending } from "./top-spending";
 
 const TYPE_COLOR: Record<string, string> = {
   expense: "text-expense",
@@ -117,6 +121,20 @@ export function DashboardPage() {
           tone="invest"
           loading={loading}
         />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <CashflowChart />
+        </div>
+        <TopSpending />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <NetWorthChart />
+        </div>
+        <AccountsList />
       </div>
 
       <Card>
