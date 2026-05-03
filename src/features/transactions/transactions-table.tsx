@@ -29,18 +29,21 @@ const TYPE_DOT: Record<Transaction["type"], string> = {
   earning: "bg-income",
   expense: "bg-expense",
   investment: "bg-invest",
+  transfer: "bg-text-faint",
 };
 
 const TYPE_COLOR: Record<Transaction["type"], string> = {
   earning: "text-income",
   expense: "text-expense",
   investment: "text-invest",
+  transfer: "text-text-muted",
 };
 
 const TYPE_LABEL: Record<Transaction["type"], string> = {
   earning: "Earning",
   expense: "Expense",
   investment: "Investment",
+  transfer: "Transfer",
 };
 
 interface Props {
@@ -77,6 +80,9 @@ export function TransactionsTable({ rows, accounts, categories }: Props) {
                 ? categoryById.get(tx.category_id)
                 : null;
               const acc = accountById.get(tx.account_id);
+              const destAcc = tx.transfer_account_id
+                ? accountById.get(tx.transfer_account_id)
+                : null;
               const signedCents =
                 tx.type === "expense" ? -tx.amount_cents : tx.amount_cents;
               return (
@@ -90,6 +96,9 @@ export function TransactionsTable({ rows, accounts, categories }: Props) {
                     {acc && (
                       <div className="text-[11.5px] text-text-faint">
                         {acc.name}
+                        {tx.type === "transfer" && destAcc && (
+                          <> → {destAcc.name}</>
+                        )}
                       </div>
                     )}
                   </Td>

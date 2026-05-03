@@ -18,8 +18,9 @@ export const AccountSchema = z.object({
   last4: z.string().nullable(),
   color: z.string().nullable(),
   icon: z.string().nullable(),
-  balance_cents: z.number().int(),
+  opening_balance_cents: z.number().int(),
   currency: z.string(),
+  archived_at: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
 });

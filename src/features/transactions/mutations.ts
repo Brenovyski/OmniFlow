@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 import { useAuth } from "@/features/auth/auth-context";
 import { supabase } from "@/lib/supabase";
@@ -14,6 +15,7 @@ export interface NewTransactionInput {
   amount_cents: number;
   account_id: string;
   category_id: string | null;
+  transfer_account_id?: string | null;
   date: string;
   description: string;
   currency?: string;
@@ -23,6 +25,9 @@ export interface UpdateTransactionInput {
   id: string;
   patch: Partial<NewTransactionInput>;
 }
+
+const TX_KEY = (userId: string | undefined) => ["transactions", userId];
+const BAL_KEY = (userId: string | undefined) => ["account-balances", userId];
 
 export function useCreateTransaction() {
   const qc = useQueryClient();
@@ -40,6 +45,7 @@ export function useCreateTransaction() {
           amount_cents: input.amount_cents,
           account_id: input.account_id,
           category_id: input.category_id,
+          transfer_account_id: input.transfer_account_id ?? null,
           date: input.date,
           description: input.description,
           currency: input.currency ?? "BRL",
@@ -50,7 +56,7 @@ export function useCreateTransaction() {
       return TransactionSchema.parse(data);
     },
     onMutate: async (input) => {
-      const key = ["transactions", userId];
+      const key = TX_KEY(userId);
       await qc.cancelQueries({ queryKey: key });
       const prev = qc.getQueryData<Transaction[]>(key);
       const now = new Date().toISOString();
@@ -62,6 +68,7 @@ export function useCreateTransaction() {
         currency: input.currency ?? "BRL",
         account_id: input.account_id,
         category_id: input.category_id,
+        transfer_account_id: input.transfer_account_id ?? null,
         date: input.date,
         description: input.description,
         deleted_at: null,
@@ -74,13 +81,22 @@ export function useCreateTransaction() {
       ]);
       return { prev };
     },
-    onError: (_err, _input, ctx) => {
+    onSuccess: (tx) => {
+      toast.success(
+        tx.type === "transfer" ? "Transfer added" : "Transaction added",
+      );
+    },
+    onError: (err, _input, ctx) => {
       if (ctx?.prev !== undefined) {
-        qc.setQueryData(["transactions", userId], ctx.prev);
+        qc.setQueryData(TX_KEY(userId), ctx.prev);
       }
+      toast.error("Couldn't save transaction", {
+        description: err instanceof Error ? err.message : undefined,
+      });
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["transactions", userId] });
+      qc.invalidateQueries({ queryKey: TX_KEY(userId) });
+      qc.invalidateQueries({ queryKey: BAL_KEY(userId) });
     },
   });
 }
@@ -102,7 +118,7 @@ export function useUpdateTransaction() {
       return TransactionSchema.parse(data);
     },
     onMutate: async ({ id, patch }) => {
-      const key = ["transactions", userId];
+      const key = TX_KEY(userId);
       await qc.cancelQueries({ queryKey: key });
       const prev = qc.getQueryData<Transaction[]>(key);
       qc.setQueryData<Transaction[]>(key, (old) =>
@@ -110,13 +126,20 @@ export function useUpdateTransaction() {
       );
       return { prev };
     },
-    onError: (_err, _input, ctx) => {
+    onSuccess: () => {
+      toast.success("Transaction updated");
+    },
+    onError: (err, _input, ctx) => {
       if (ctx?.prev !== undefined) {
-        qc.setQueryData(["transactions", userId], ctx.prev);
+        qc.setQueryData(TX_KEY(userId), ctx.prev);
       }
+      toast.error("Couldn't update transaction", {
+        description: err instanceof Error ? err.message : undefined,
+      });
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["transactions", userId] });
+      qc.invalidateQueries({ queryKey: TX_KEY(userId) });
+      qc.invalidateQueries({ queryKey: BAL_KEY(userId) });
     },
   });
 }
@@ -136,7 +159,7 @@ export function useSoftDeleteTransaction() {
       return id;
     },
     onMutate: async (id) => {
-      const key = ["transactions", userId];
+      const key = TX_KEY(userId);
       await qc.cancelQueries({ queryKey: key });
       const prev = qc.getQueryData<Transaction[]>(key);
       qc.setQueryData<Transaction[]>(key, (old) =>
@@ -144,13 +167,20 @@ export function useSoftDeleteTransaction() {
       );
       return { prev };
     },
-    onError: (_err, _id, ctx) => {
+    onSuccess: () => {
+      toast.success("Transaction deleted");
+    },
+    onError: (err, _id, ctx) => {
       if (ctx?.prev !== undefined) {
-        qc.setQueryData(["transactions", userId], ctx.prev);
+        qc.setQueryData(TX_KEY(userId), ctx.prev);
       }
+      toast.error("Couldn't delete transaction", {
+        description: err instanceof Error ? err.message : undefined,
+      });
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["transactions", userId] });
+      qc.invalidateQueries({ queryKey: TX_KEY(userId) });
+      qc.invalidateQueries({ queryKey: BAL_KEY(userId) });
     },
   });
 }

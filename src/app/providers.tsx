@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, type ReactNode } from "react";
 
+import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/features/auth/auth-context";
 import { useUIStore } from "@/stores/ui-store";
 
@@ -25,7 +26,10 @@ export function AppProviders({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <ThemeSync>{children}</ThemeSync>
+        <ThemeSync>
+          {children}
+          <Toaster />
+        </ThemeSync>
       </AuthProvider>
     </QueryClientProvider>
   );

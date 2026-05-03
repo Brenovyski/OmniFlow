@@ -10,6 +10,39 @@ For the full stack, schema decisions, and architecture choices, read `README.md`
 
 > flows in (earnings), flows out (expenses), flows around (investments).
 
+## Implementation session protocol
+
+Every new session that picks up a Roadmap step **must** follow this loop. The protocol exists because steps land across separate sessions (often hitting usage limits mid-step), and skipping any of these is how plan / code / status drift apart.
+
+1. **Read `implementation_plan.md` first.** It is the canonical step detail; the Roadmap section below is just an index. Don't start coding from memory or from the CLAUDE.md summary alone.
+2. **Read the `## Status` block below** to confirm where the previous session actually stopped — some steps land in chunks (e.g. 3a/3b), and the prior session may have left files half-staged.
+3. **Implement the step** using the prescribed file paths, patterns, and reused helpers from the plan. If reality diverges (constraint discovered, scope change, ordering swap), edit `implementation_plan.md` in the same commit as the code change — never let plan and code drift.
+4. **Apply pending migrations yourself.** If the step ships SQL, push it via `pnpm dlx supabase db push` (see *Database migrations* below). The user has standing authorization for this — don't wait.
+5. **Local verify.** Both `pnpm typecheck` and `pnpm build` must go green before handing off. Fix everything red yourself; don't punt failures to the smoke test.
+6. **Hand off to the user for smoke testing.** Start the dev server with `pnpm dev` and post a short numbered checklist of what to click through (one item per Verification line in the step's plan entry). **Wait for the user to confirm** before committing — don't commit unverified work.
+7. **Update `CLAUDE.md`** — flip the Roadmap checkbox to `[x]` (or `[~]` for chunked landings), add a "Step N — done" bullet to the Status block, and update the "Next step" pointer to the following step.
+8. **Update `implementation_plan.md`** if anything in the plan turned out wrong, ambiguous, or expanded during implementation. Better to amend the plan than to leave it lying.
+9. **Commit and push** in one go — code + migrations + CLAUDE.md + plan edits as a single logical commit. No co-authored trailer (per user preference). Push to remote unless the user has said otherwise.
+
+If at any point the user types something that contradicts this protocol (e.g. "skip the smoke test, just commit"), do what they say — but log the deviation in the commit message so future sessions can see it happened.
+
+### Session-limit handoff
+
+Claude Code shows a "Plan usage limits — Current session N% used / Resets in Xh Ym" indicator. Treat that meter as a hard deadline, not a suggestion.
+
+- **At ~85% used**, stop starting new work. Finish the slice in flight, then prepare the handoff.
+- **At ~95% used**, abort even mid-slice — leaving a half-finished commit is fine, leaving the *next session* without a written record of where you stopped is not.
+
+Before the session dies, in this order:
+
+1. **Update `## Status`** with a precise line for what just landed *and* what is still pending inside the current step. Be specific — name the files that are partially done, the migration that wasn't pushed, the smoke test that wasn't run. "Step 5 — palette done, FAB pending" is useful. "Step 5 — partial" is not.
+2. **Flip the Roadmap checkbox to `[~]`** (chunked landing) for the active step, never `[x]` — `[x]` is only for fully verified, fully shipped slices.
+3. **Update `implementation_plan.md`** if you discovered anything mid-step that future-you needs to know (a constraint, a dropped sub-task, a renamed file). Don't carry that knowledge in your head — the next session won't have it.
+4. **Commit and push** the partial work + status + plan edits in one commit, with a message like `wip(step N): <slice that landed> — <what is pending next>`. The commit is the handoff; without it the next session restarts cold.
+5. Tell the user in the final message what step + slice they should resume on, so they can paste that as the kick-off prompt next session.
+
+The whole point: a session that runs out of budget should leave the repo in a state where the next session reads `## Status` + the latest commit and immediately knows where to pick up. Never end a session with uncommitted work and a stale status block.
+
 ## Brand identity
 
 ### Mascot — Volt 
@@ -93,54 +126,64 @@ When implementing features in this repo:
 
 Migrations live in `supabase/migrations/` as numbered SQL files (`001_init.sql`, `002_category_types.sql`, …). They are applied to the hosted project (`mkwncqhhnkhcznauzveq`) via the Supabase CLI, not by pasting into the dashboard SQL Editor.
 
-**One-time setup (user runs locally — needs DB password):**
+**Standing authorization: Claude runs migration pushes itself.** The user has authorized Claude to run `supabase link` and `supabase db push` end-to-end whenever a new migration file lands. Don't ask before pushing — read the credentials from `.env` and apply. If a push fails, surface the error and stop; never silently skip a migration.
+
+**Credentials live in `.env`** (this is a single-user, local project — `.env` already holds `SUPABASE_TOKEN` and `SUPABASE_DB_PASSWORD` alongside the runtime `VITE_SUPABASE_*` keys). Read them in PowerShell with:
 
 ```powershell
-# Install (Windows, via Scoop — recommended by Supabase):
-scoop bucket add supabase https://github.com/supabase/scoop-bucket.git
-scoop install supabase
-
-# Link this repo to the hosted project:
-supabase link --project-ref mkwncqhhnkhcznauzveq
-
-# Mark 001 as already applied (it was applied manually before the CLI was wired):
-supabase migration repair --status applied 001
+$envFile = Get-Content .env
+$token  = ($envFile | Where-Object { $_ -match "^SUPABASE_TOKEN=" })       -replace "^SUPABASE_TOKEN=", ""
+$dbpass = ($envFile | Where-Object { $_ -match "^SUPABASE_DB_PASSWORD=" }) -replace "^SUPABASE_DB_PASSWORD=", ""
+$env:SUPABASE_ACCESS_TOKEN = $token   # what supabase CLI expects
+$env:SUPABASE_DB_PASSWORD  = $dbpass
 ```
 
-**Per-migration workflow (Claude can run after the one-time setup):**
+**CLI invocation** uses `pnpm dlx supabase` (the CLI is not installed globally on this machine, and `pnpm dlx` runs the published binary on demand without polluting global state):
 
 ```powershell
-supabase db push
+# Link once per machine (idempotent — safe to re-run):
+pnpm dlx supabase link --project-ref mkwncqhhnkhcznauzveq --password $dbpass
+
+# Apply every pending migration:
+pnpm dlx supabase db push --password $dbpass
+
+# Sanity check before/after:
+pnpm dlx supabase migration list --password $dbpass
 ```
 
-`db push` applies any migration files in `supabase/migrations/` whose version is not yet recorded in the project's `supabase_migrations.schema_migrations` table.
+`db push` applies any migration files in `supabase/migrations/` whose version is not yet recorded in the project's `supabase_migrations.schema_migrations` table. The `Local | Remote` columns in `migration list` should match after a successful push.
 
 **Rules:**
 - Never edit a migration that has already been pushed to the hosted project. Ship a new numbered file instead.
 - New tables ship with their RLS policies in the same migration that creates them.
 - Idempotent where reasonable (`if not exists`, `where not exists`, conditional `update`s) so re-runs during development don't crater data.
-- The `.env` `VITE_SUPABASE_*` variables are for the *runtime client*. The CLI uses its own session stored after `supabase link` and does not read `.env`.
+- The `.env` `VITE_SUPABASE_*` variables are for the *runtime client*. The CLI auth is `SUPABASE_TOKEN` (mapped to `SUPABASE_ACCESS_TOKEN` env var) + `SUPABASE_DB_PASSWORD` for the direct DB connection.
+- `.env` is local and gitignored — never commit it, never echo its values back to the user.
 
 ## Status
 
 > **Implementation plan:** see [`implementation_plan.md`](./implementation_plan.md). Future sessions must consult it before starting any step from the Roadmap below. If reality drifts from the plan during implementation, edit both files in the same commit.
 
-Step 3 (transactions) is in. Done so far:
+Another important thing to bear in mind is to the usage cost, every step will be done in separate sessions or until it hits the usage limits. Because of this you have to fully commit to follow the implementation plan without having previous session
+knowledge. Be free to suggest any kind of editing that you feel is necessary! Always update this file when the steps are being concluded. 
+
+Step 4 (accounts CRUD + transfers + toasts) is in. Done so far:
 
 - **Step 1** — Scaffold: Vite + React + TS + Tailwind + shadcn/ui, admin layout shell with collapsible sidebar, theme toggle, placeholder routes.
 - **Step 2** — Supabase + auth: hosted project wired, migration `001_init.sql` (accounts/categories/transactions, RLS, updated_at + new-user seed triggers), email+password login/signup, `<RequireAuth>` guards, typed query hooks.
 - **Step 3a** — Transaction creation: react-hook-form + zod, dialog opened from sidebar Quick add / topbar New / Transactions page button / `N` keyboard shortcut, optimistic create via TanStack Query.
 - **Step 3b** — Transactions table: filter chips (type + Source) with URL-bound state, edit dialog, soft delete with confirm, CSV export, dynamic uncategorized badge in sidebar.
 - **English-by-default pass** — every app-controlled string is English; only user-typed data lives in whatever language the user types. `parseAmountToCents` accepts both en-US and pt-BR formats so input is forgiving.
-- **Migrations 001 + 002 applied** to the hosted project via `supabase db push`. CLI is set up and linked. Future migrations follow the same workflow.
+- **Step 4** — Migration `003_accounts_balance_transfers.sql` lands `accounts.opening_balance_cents` + `archived_at`, drops `balance_cents`, extends `transactions.type` with `'transfer'` + `transfer_account_id`, and ships the `account_balances_v` derived-balance view (security_invoker). Accounts CRUD lives under a new tabbed Settings page (Profile / Sources / Preferences / Data) with create / edit / archive flows, opening-balance + currency picker, and live derived balances via `useAccountBalances()`. Transfer is a fourth transaction type — picker shows From / To and hides the category selector when type=transfer; the table renders `Source → Destination` for transfer rows. Sonner is wired (`<Toaster />` in `providers.tsx`) and every account + transaction mutation calls `toast.success` / `toast.error`; the dialog's redundant local error pane was removed.
+- **Migrations 001 + 002 + 003 applied** to the hosted project via `pnpm dlx supabase db push`. Project is linked; future migrations are pushed by Claude automatically as soon as the SQL file lands (see *Database migrations* above).
 
-Next step (step 4) is **Migration 003 + Accounts CRUD + Sonner toasts** — drop `accounts.balance_cents`, add `opening_balance_cents`, add transfer support, create the `account_balances_v` view, build accounts management under a tabbed Settings page, and land Sonner so future mutations have a consistent toast pattern. See `implementation_plan.md` for detail.
+Next step (step 5) is **Command palette (⌘K) + FAB** — install `cmdk`, build the registry/provider/dialog under `src/features/command-palette/`, wire the topbar Search button + global ⌘K listener, and add the brand-yellow floating action button on every authenticated route. See `implementation_plan.md` for detail.
 
 ## Roadmap
 
 Condensed checklist; flip the box and add a Status bullet when a step lands. Detail lives in `implementation_plan.md` — keep these lines one-liners.
 
-- [ ] **Step 4** — Migration 003 + Accounts CRUD + balance view + Sonner toasts
+- [x] **Step 4** — Migration 003 + Accounts CRUD + balance view + Sonner toasts
 - [ ] **Step 5** — Command palette (⌘K) + FAB
 - [ ] **Step 6a** — Dashboard: KPI cards + sparklines + time-range chips
 - [ ] **Step 6b** — Dashboard: cashflow + accounts list + net-worth chart

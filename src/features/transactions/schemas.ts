@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-export const TRANSACTION_TYPES = ["expense", "earning", "investment"] as const;
+export const TRANSACTION_TYPES = [
+  "expense",
+  "earning",
+  "investment",
+  "transfer",
+] as const;
 
 export const TransactionSchema = z.object({
   id: z.string(),
@@ -10,6 +15,7 @@ export const TransactionSchema = z.object({
   currency: z.string(),
   account_id: z.string(),
   category_id: z.string().nullable(),
+  transfer_account_id: z.string().nullable(),
   date: z.string(),
   description: z.string(),
   deleted_at: z.string().nullable(),

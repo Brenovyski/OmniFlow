@@ -1,5 +1,3 @@
-import { useState } from "react";
-
 import {
   Dialog,
   DialogContent,
@@ -21,19 +19,12 @@ export function TransactionDialog() {
   const editing = useModalStore((s) => s.editingTx);
   const create = useCreateTransaction();
   const update = useUpdateTransaction();
-  const [error, setError] = useState<string | null>(null);
 
   const isEdit = editing !== null;
   const submitting = create.isPending || update.isPending;
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) setError(null);
-      }}
-    >
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
@@ -50,22 +41,16 @@ export function TransactionDialog() {
           submitting={submitting}
           onCancel={close}
           onSubmit={(input) => {
-            setError(null);
-            const onSuccess = () => close();
-            const onError = (err: unknown) =>
-              setError(err instanceof Error ? err.message : "Failed to save");
-
             if (editing) {
               update.mutate(
                 { id: editing.id, patch: input },
-                { onSuccess, onError },
+                { onSuccess: close },
               );
             } else {
-              create.mutate(input, { onSuccess, onError });
+              create.mutate(input, { onSuccess: close });
             }
           }}
         />
-        {error && <p className="text-center text-xs text-expense">{error}</p>}
       </DialogContent>
     </Dialog>
   );

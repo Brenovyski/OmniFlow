@@ -8,12 +8,14 @@ const TYPE_LABEL = {
   earning: "Earnings",
   expense: "Expenses",
   investment: "Investments",
+  transfer: "Transfers",
 } as const;
 
 const TYPE_DOT = {
   earning: "bg-income",
   expense: "bg-expense",
   investment: "bg-invest",
+  transfer: "bg-text-faint",
 } as const;
 
 export interface FilterState {
