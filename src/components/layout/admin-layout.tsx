@@ -1,8 +1,10 @@
 import { Outlet } from "react-router-dom";
 
+import { Fab } from "@/components/layout/fab";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Topbar } from "@/components/layout/topbar";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
+import { CommandPaletteProvider } from "@/features/command-palette/provider";
 import { TransactionDialog } from "@/features/transactions/transaction-dialog";
 import { cn } from "@/lib/utils";
 import { useUIStore } from "@/stores/ui-store";
@@ -24,6 +26,8 @@ export function AdminLayout() {
         </div>
       </main>
       <TransactionDialog />
+      <CommandPaletteProvider />
+      <Fab />
       <KeyboardShortcuts />
     </div>
   );
