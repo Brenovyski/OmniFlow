@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Plus } from "lucide-react";
 
 import {
@@ -7,31 +8,115 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { useAccountBalances } from "@/features/accounts/balances-queries";
+import { useAuth } from "@/features/auth/auth-context";
 import { useTransactions } from "@/features/transactions/queries";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useModalStore } from "@/stores/modal-store";
 
+import { KpiCard } from "./kpi-card";
+import { computeRangeStats } from "./stats";
+import { TimeRangeChips, useTimeRange } from "./time-range-chips";
+
 const TYPE_COLOR: Record<string, string> = {
   expense: "text-expense",
   earning: "text-income",
   investment: "text-invest",
+  transfer: "text-text-faint",
 };
 
+function greetingFor(hour: number): string {
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+function nameFromEmail(email: string | null | undefined): string {
+  if (!email) return "there";
+  const local = email.split("@")[0] ?? "";
+  if (!local) return "there";
+  return local.charAt(0).toUpperCase() + local.slice(1);
+}
+
 export function DashboardPage() {
-  const transactions = useTransactions();
+  const { user } = useAuth();
+  const transactionsQ = useTransactions();
+  const balancesQ = useAccountBalances();
   const openNewTx = useModalStore((s) => s.openNewTx);
-  const recent = (transactions.data ?? []).slice(0, 5);
+  const [range] = useTimeRange();
+
+  const transactions = transactionsQ.data ?? [];
+  const recent = transactions.slice(0, 5);
+
+  const currentTotal = useMemo(() => {
+    if (!balancesQ.data) return 0;
+    let sum = 0;
+    for (const v of balancesQ.data.values()) sum += v;
+    return sum;
+  }, [balancesQ.data]);
+
+  const stats = useMemo(
+    () => computeRangeStats(range, transactions, currentTotal),
+    [range, transactions, currentTotal],
+  );
+
+  const loading = transactionsQ.isLoading || balancesQ.isLoading;
+  const greeting = greetingFor(new Date().getHours());
+  const userName = nameFromEmail(user?.email);
 
   return (
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="font-display text-[28px] font-bold tracking-tight">
-          Dashboard
+          {greeting}, {userName}
         </h1>
         <p className="mt-1 text-sm text-text-muted">
           Cash flow, balances, and the month at a glance.
         </p>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span className="text-xs font-semibold uppercase tracking-wider text-text-faint">
+          Range
+        </span>
+        <TimeRangeChips />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <KpiCard
+          label="Net worth"
+          cents={stats.netWorth}
+          series={stats.netWorthSeries}
+          priorCents={stats.prior.netWorth}
+          tone="text"
+          loading={loading}
+        />
+        <KpiCard
+          label="Income"
+          cents={stats.income}
+          series={stats.incomeSeries}
+          priorCents={stats.prior.income}
+          tone="income"
+          loading={loading}
+        />
+        <KpiCard
+          label="Spending"
+          cents={stats.expense}
+          series={stats.expenseSeries}
+          priorCents={stats.prior.expense}
+          tone="expense"
+          invertDeltaPolarity
+          loading={loading}
+        />
+        <KpiCard
+          label="Invested"
+          cents={stats.invested}
+          series={stats.investedSeries}
+          priorCents={stats.prior.invested}
+          tone="invest"
+          loading={loading}
+        />
       </div>
 
       <Card>
@@ -40,7 +125,7 @@ export function DashboardPage() {
           <CardDescription>Your last 5 entries.</CardDescription>
         </CardHeader>
         <CardContent>
-          {transactions.isLoading ? (
+          {transactionsQ.isLoading ? (
             <div className="text-sm text-text-muted">Loading…</div>
           ) : recent.length === 0 ? (
             <button
@@ -89,10 +174,6 @@ export function DashboardPage() {
           )}
         </CardContent>
       </Card>
-
-      <p className="text-xs text-text-faint">
-        Coming next: KPI cards, cash flow chart, top categories, accounts panel.
-      </p>
     </div>
   );
 }

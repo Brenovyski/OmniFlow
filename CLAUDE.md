@@ -167,7 +167,7 @@ pnpm dlx supabase migration list --password $dbpass
 Another important thing to bear in mind is to the usage cost, every step will be done in separate sessions or until it hits the usage limits. Because of this you have to fully commit to follow the implementation plan without having previous session
 knowledge. Be free to suggest any kind of editing that you feel is necessary! Always update this file when the steps are being concluded. 
 
-Step 5 (command palette + FAB) is in. Done so far:
+Step 6a (dashboard KPIs) is in. Done so far:
 
 - **Step 1** — Scaffold: Vite + React + TS + Tailwind + shadcn/ui, admin layout shell with collapsible sidebar, theme toggle, placeholder routes.
 - **Step 2** — Supabase + auth: hosted project wired, migration `001_init.sql` (accounts/categories/transactions, RLS, updated_at + new-user seed triggers), email+password login/signup, `<RequireAuth>` guards, typed query hooks.
@@ -176,9 +176,10 @@ Step 5 (command palette + FAB) is in. Done so far:
 - **English-by-default pass** — every app-controlled string is English; only user-typed data lives in whatever language the user types. `parseAmountToCents` accepts both en-US and pt-BR formats so input is forgiving.
 - **Step 4** — Migration `003_accounts_balance_transfers.sql` lands `accounts.opening_balance_cents` + `archived_at`, drops `balance_cents`, extends `transactions.type` with `'transfer'` + `transfer_account_id`, and ships the `account_balances_v` derived-balance view (security_invoker). Accounts CRUD lives under a new tabbed Settings page (Profile / Sources / Preferences / Data) with create / edit / archive flows, opening-balance + currency picker, and live derived balances via `useAccountBalances()`. Transfer is a fourth transaction type — picker shows From / To and hides the category selector when type=transfer; the table renders `Source → Destination` for transfer rows. Sonner is wired (`<Toaster />` in `providers.tsx`) and every account + transaction mutation calls `toast.success` / `toast.error`; the dialog's redundant local error pane was removed.
 - **Step 5** — Installed `cmdk` and shipped the canonical shadcn `command.tsx` primitive. New `src/features/command-palette/` holds a Zustand `registry` (palette open state + `Map<id, CommandItem>`), a `useRegisterCommands(...)` hook, the `palette-dialog.tsx` UI (grouped Navigate / Actions / Account, footer hints, loop nav), and a `provider.tsx` that mounts the dialog and registers the always-on commands (navigate to each route, New transaction, toggle theme, toggle sidebar, sign out). `keyboard-shortcuts.tsx` now toggles the palette on ⌘K / Ctrl+K (works even with the new-tx dialog open) and still keeps `N` for new-transaction. Topbar Search button opens the palette and shows a platform-aware `⌘K` / `Ctrl K` kbd hint. New `src/components/layout/fab.tsx` — 56px brand-yellow circle bottom-right, opens the new-tx dialog, hides while the dialog is open — mounted in `AdminLayout` so it lives on every authenticated route.
+- **Step 6a** — Installed `recharts`. New `src/features/dashboard/time-range-chips.tsx` exposes `TimeRangeChips` + `useTimeRange()` (URL-bound `?range=` param, `30d` is the default and is omitted from the URL) plus a `rangeWindow()` helper that returns `{start, end, prevStart, prevEnd}` for both the active and the prior window. New `sparkline.tsx` is a tiny Recharts `LineChart` wrapper with token-driven stroke (income/expense/invest/text). New `kpi-card.tsx` renders the label, big-number in Space Grotesk + tabular-nums, an inline 7-point sparkline, and a delta vs prior period (arrow + tone + percent — Spending uses `invertDeltaPolarity` so "down" reads as good). New `stats.ts` (`computeRangeStats`) walks transactions once to produce KPI totals (income / expense / invested), 7-bucket sparkline series, and a net-worth time series reconstructed from the live `useAccountBalances()` total minus future-from-bucket-end deltas — transfers net to zero across accounts. `dashboard-page.tsx` now greets the user (time-of-day + capitalised email local-part), renders the range chips, the 4 KPI cards (Net worth / Income / Spending / Invested), and keeps the recent-transactions card at the bottom.
 - **Migrations 001 + 002 + 003 applied** to the hosted project via `pnpm dlx supabase db push`. Project is linked; future migrations are pushed by Claude automatically as soon as the SQL file lands (see *Database migrations* above).
 
-Next step (step 6a) is **Dashboard KPI cards + sparklines + time-range chips** — install `recharts`, build `src/features/dashboard/{kpi-card,sparkline,time-range-chips}.tsx`, replace the placeholder text in `dashboard-page.tsx` with 4 KPI cards (Net worth via `useAccountBalances()`, Income, Spending, Invested) showing big-number + MoM delta + 7-point inline sparkline, and add URL-bound `range=` chips (7d / 30d / MTD / YTD). See `implementation_plan.md` for detail.
+Next step (step 6b) is **Dashboard cashflow + accounts list + net-worth chart** — 12-week dual-bar Recharts chart (`cashflow-chart.tsx`), top-spending list (`top-spending.tsx`), per-account row with derived balances (`accounts-list.tsx`), and a 12-month area chart with a `nw=` URL-bound segmented selector (3M / 6M / 1Y / All) on `net-worth-chart.tsx`. See `implementation_plan.md` step 6b.
 
 ## Roadmap
 
@@ -186,7 +187,7 @@ Condensed checklist; flip the box and add a Status bullet when a step lands. Det
 
 - [x] **Step 4** — Migration 003 + Accounts CRUD + balance view + Sonner toasts
 - [x] **Step 5** — Command palette (⌘K) + FAB
-- [ ] **Step 6a** — Dashboard: KPI cards + sparklines + time-range chips
+- [x] **Step 6a** — Dashboard: KPI cards + sparklines + time-range chips
 - [ ] **Step 6b** — Dashboard: cashflow + accounts list + net-worth chart
 - [ ] **Step 7** — Categories page (grid, counts, CRUD)
 - [ ] **Step 8** — Migration 004 + Investments page + holdings
