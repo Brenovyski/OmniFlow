@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { PAYMENT_METHODS } from "@/features/sources/schemas";
+
 export const TRANSACTION_TYPES = [
   "expense",
   "earning",
@@ -16,6 +18,8 @@ export const TransactionSchema = z.object({
   account_id: z.string(),
   category_id: z.string().nullable(),
   transfer_account_id: z.string().nullable(),
+  payment_method: z.enum(PAYMENT_METHODS).nullable(),
+  settled_at: z.string().nullable(),
   date: z.string(),
   description: z.string(),
   deleted_at: z.string().nullable(),

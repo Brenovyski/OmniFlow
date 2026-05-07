@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import { useAuth } from "@/features/auth/auth-context";
 import { supabase } from "@/lib/supabase";
 
+import type { PaymentMethod } from "@/features/sources/schemas";
+
 import {
   TransactionSchema,
   type Transaction,
@@ -16,6 +18,7 @@ export interface NewTransactionInput {
   account_id: string;
   category_id: string | null;
   transfer_account_id?: string | null;
+  payment_method?: PaymentMethod | null;
   date: string;
   description: string;
   currency?: string;
@@ -28,6 +31,10 @@ export interface UpdateTransactionInput {
 
 const TX_KEY = (userId: string | undefined) => ["transactions", userId];
 const BAL_KEY = (userId: string | undefined) => ["account-balances", userId];
+const CC_KEY = (userId: string | undefined) => [
+  "credit-card-outstanding",
+  userId,
+];
 
 export function useCreateTransaction() {
   const qc = useQueryClient();
@@ -46,6 +53,7 @@ export function useCreateTransaction() {
           account_id: input.account_id,
           category_id: input.category_id,
           transfer_account_id: input.transfer_account_id ?? null,
+          payment_method: input.payment_method ?? null,
           date: input.date,
           description: input.description,
           currency: input.currency ?? "BRL",
@@ -69,6 +77,8 @@ export function useCreateTransaction() {
         account_id: input.account_id,
         category_id: input.category_id,
         transfer_account_id: input.transfer_account_id ?? null,
+        payment_method: input.payment_method ?? null,
+        settled_at: null,
         date: input.date,
         description: input.description,
         deleted_at: null,
@@ -97,6 +107,7 @@ export function useCreateTransaction() {
     onSettled: () => {
       qc.invalidateQueries({ queryKey: TX_KEY(userId) });
       qc.invalidateQueries({ queryKey: BAL_KEY(userId) });
+      qc.invalidateQueries({ queryKey: CC_KEY(userId) });
     },
   });
 }
@@ -140,6 +151,52 @@ export function useUpdateTransaction() {
     onSettled: () => {
       qc.invalidateQueries({ queryKey: TX_KEY(userId) });
       qc.invalidateQueries({ queryKey: BAL_KEY(userId) });
+      qc.invalidateQueries({ queryKey: CC_KEY(userId) });
+    },
+  });
+}
+
+/**
+ * Settle outstanding credit-card charges on a checking account by stamping
+ * `settled_at = now()` on every unsettled `payment_method='credit_card'` row
+ * for that account. Once settled, the rows become real expenses against the
+ * checking balance via `account_balances_v`.
+ */
+export function useSettleCreditCardBill() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  const userId = user?.id;
+
+  return useMutation({
+    mutationFn: async (accountId: string) => {
+      const now = new Date().toISOString();
+      const { data, error } = await supabase
+        .from("transactions")
+        .update({ settled_at: now })
+        .eq("account_id", accountId)
+        .eq("payment_method", "credit_card")
+        .is("settled_at", null)
+        .is("deleted_at", null)
+        .select("id");
+      if (error) throw error;
+      return data?.length ?? 0;
+    },
+    onSuccess: (count) => {
+      if (count > 0) {
+        toast.success(`Settled ${count} credit card charge${count === 1 ? "" : "s"}`);
+      } else {
+        toast.info("Nothing to settle");
+      }
+    },
+    onError: (err) => {
+      toast.error("Couldn't settle bill", {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: TX_KEY(userId) });
+      qc.invalidateQueries({ queryKey: BAL_KEY(userId) });
+      qc.invalidateQueries({ queryKey: CC_KEY(userId) });
     },
   });
 }
@@ -181,6 +238,7 @@ export function useSoftDeleteTransaction() {
     onSettled: () => {
       qc.invalidateQueries({ queryKey: TX_KEY(userId) });
       qc.invalidateQueries({ queryKey: BAL_KEY(userId) });
+      qc.invalidateQueries({ queryKey: CC_KEY(userId) });
     },
   });
 }

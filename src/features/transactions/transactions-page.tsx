@@ -22,10 +22,18 @@ export function TransactionsPage() {
   const [filter] = useFilterState();
 
   const all = transactions.data ?? [];
+  const accountSourceId = new Map(
+    (accounts.data ?? []).map((a) => [a.id, a.source_id]),
+  );
   const filtered = all.filter((tx) => {
     if (filter.type !== "all" && tx.type !== filter.type) return false;
-    if (filter.accountId !== "all" && tx.account_id !== filter.accountId)
-      return false;
+    if (filter.sourceId !== "all") {
+      const src = accountSourceId.get(tx.account_id);
+      const destSrc = tx.transfer_account_id
+        ? accountSourceId.get(tx.transfer_account_id)
+        : undefined;
+      if (src !== filter.sourceId && destSrc !== filter.sourceId) return false;
+    }
     return true;
   });
 

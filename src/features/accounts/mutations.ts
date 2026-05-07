@@ -9,11 +9,13 @@ import { AccountSchema, type Account, type AccountType } from "./schemas";
 export interface NewAccountInput {
   name: string;
   type: AccountType;
+  source_id: string;
   short_name?: string | null;
   last4?: string | null;
   color?: string | null;
   icon?: string | null;
   opening_balance_cents: number;
+  credit_limit_cents?: number | null;
   currency?: string;
 }
 
@@ -40,6 +42,7 @@ export function useCreateAccount() {
         .from("accounts")
         .insert({
           user_id: userId,
+          source_id: input.source_id,
           name: input.name,
           type: input.type,
           short_name: input.short_name ?? null,
@@ -47,6 +50,7 @@ export function useCreateAccount() {
           color: input.color ?? null,
           icon: input.icon ?? null,
           opening_balance_cents: input.opening_balance_cents,
+          credit_limit_cents: input.credit_limit_cents ?? null,
           currency: input.currency ?? "BRL",
         })
         .select("*")

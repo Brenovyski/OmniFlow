@@ -19,6 +19,15 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { Account } from "@/features/accounts/schemas";
 import type { Category } from "@/features/categories/schemas";
+import {
+  accountDisplayColor,
+  sourceLabel,
+} from "@/features/sources/display";
+import { useSources } from "@/features/sources/queries";
+import {
+  PAYMENT_METHOD_LABEL,
+  type Source,
+} from "@/features/sources/schemas";
 import { useSoftDeleteTransaction } from "@/features/transactions/mutations";
 import type { Transaction } from "@/features/transactions/schemas";
 import { fmtDate, fmtMoney } from "@/lib/format";
@@ -55,6 +64,10 @@ interface Props {
 export function TransactionsTable({ rows, accounts, categories }: Props) {
   const accountById = new Map(accounts.map((a) => [a.id, a]));
   const categoryById = new Map(categories.map((c) => [c.id, c]));
+  const sourcesQ = useSources();
+  const sourceById = new Map<string, Source>(
+    (sourcesQ.data ?? []).map((s) => [s.id, s]),
+  );
   const openEdit = useModalStore((s) => s.openEditTx);
   const softDelete = useSoftDeleteTransaction();
   const [pendingDelete, setPendingDelete] = useState<Transaction | null>(null);
@@ -69,6 +82,7 @@ export function TransactionsTable({ rows, accounts, categories }: Props) {
               <Th>Description</Th>
               <Th>Category</Th>
               <Th>Source</Th>
+              <Th>Method</Th>
               <Th>Type</Th>
               <Th className="text-right">Amount</Th>
               <Th className="w-10" />
@@ -119,15 +133,39 @@ export function TransactionsTable({ rows, accounts, categories }: Props) {
                   </Td>
                   <Td>
                     {acc ? (
-                      <span
-                        className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-2.5 py-0.5 text-xs font-medium text-text"
-                        title={`${acc.name} · ${acc.type}`}
-                      >
-                        <span
-                          className="h-2 w-2 rounded-sm"
-                          style={{ background: acc.color ?? "#A8A29E" }}
-                        />
-                        {acc.short_name ?? acc.name}
+                      (() => {
+                        const src = sourceById.get(acc.source_id);
+                        const label = sourceLabel(src) || acc.name;
+                        return (
+                          <span
+                            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-2.5 py-0.5 text-xs font-medium text-text"
+                            title={`${acc.name} · ${acc.type}`}
+                          >
+                            <span
+                              className="h-2 w-2 rounded-sm"
+                              style={{
+                                background: accountDisplayColor(acc, src),
+                              }}
+                            />
+                            {label}
+                          </span>
+                        );
+                      })()
+                    ) : (
+                      <span className="text-xs text-text-faint">—</span>
+                    )}
+                  </Td>
+                  <Td>
+                    {tx.payment_method ? (
+                      <span className="inline-flex items-center rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-text-muted">
+                        {PAYMENT_METHOD_LABEL[tx.payment_method]}
+                        {tx.payment_method === "credit_card" &&
+                          tx.settled_at === null && (
+                            <span
+                              className="ml-1.5 h-1.5 w-1.5 rounded-full bg-brand"
+                              title="Unsettled"
+                            />
+                          )}
                       </span>
                     ) : (
                       <span className="text-xs text-text-faint">—</span>

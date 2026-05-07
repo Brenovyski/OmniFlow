@@ -1,6 +1,7 @@
 import { useSearchParams } from "react-router-dom";
 
-import { useAccounts } from "@/features/accounts/queries";
+import { sourceLabel } from "@/features/sources/display";
+import { useSources } from "@/features/sources/queries";
 import { TRANSACTION_TYPES } from "@/features/transactions/schemas";
 import { cn } from "@/lib/utils";
 
@@ -20,7 +21,7 @@ const TYPE_DOT = {
 
 export interface FilterState {
   type: "all" | (typeof TRANSACTION_TYPES)[number];
-  accountId: "all" | string;
+  sourceId: "all" | string;
 }
 
 export function useFilterState(): [
@@ -29,25 +30,25 @@ export function useFilterState(): [
 ] {
   const [params, setParams] = useSearchParams();
   const type = (params.get("type") ?? "all") as FilterState["type"];
-  const accountId = params.get("account") ?? "all";
+  const sourceId = params.get("source") ?? "all";
 
   const set = (next: Partial<FilterState>) => {
-    const merged: FilterState = { type, accountId, ...next };
+    const merged: FilterState = { type, sourceId, ...next };
     const np = new URLSearchParams(params);
     if (merged.type === "all") np.delete("type");
     else np.set("type", merged.type);
-    if (merged.accountId === "all") np.delete("account");
-    else np.set("account", merged.accountId);
+    if (merged.sourceId === "all") np.delete("source");
+    else np.set("source", merged.sourceId);
     setParams(np, { replace: true });
   };
 
-  return [{ type, accountId }, set];
+  return [{ type, sourceId }, set];
 }
 
 export function FilterChips() {
   const [filter, setFilter] = useFilterState();
-  const accountsQ = useAccounts();
-  const accounts = accountsQ.data ?? [];
+  const sourcesQ = useSources();
+  const sources = (sourcesQ.data ?? []).filter((s) => !s.archived_at);
 
   return (
     <div className="flex flex-col gap-2">
@@ -70,30 +71,30 @@ export function FilterChips() {
         ))}
       </div>
 
-      {accounts.length > 0 && (
+      {sources.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-text-faint">
             Source
           </span>
           <Chip
-            active={filter.accountId === "all"}
-            onClick={() => setFilter({ accountId: "all" })}
+            active={filter.sourceId === "all"}
+            onClick={() => setFilter({ sourceId: "all" })}
           >
             All sources
           </Chip>
-          {accounts.map((a) => (
+          {sources.map((s) => (
             <Chip
-              key={a.id}
-              active={filter.accountId === a.id}
-              onClick={() => setFilter({ accountId: a.id })}
+              key={s.id}
+              active={filter.sourceId === s.id}
+              onClick={() => setFilter({ sourceId: s.id })}
             >
-              {a.color && (
+              {s.color && (
                 <span
                   className="h-2 w-2 rounded-sm"
-                  style={{ background: a.color }}
+                  style={{ background: s.color }}
                 />
               )}
-              {a.short_name ?? a.name}
+              {sourceLabel(s)}
             </Chip>
           ))}
         </div>

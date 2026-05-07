@@ -15,41 +15,18 @@ import {
 import { parseAmountToCents } from "@/lib/format";
 
 import type { NewAccountInput } from "./mutations";
-import { ACCOUNT_TYPES, type Account } from "./schemas";
-
-const TYPE_LABEL: Record<(typeof ACCOUNT_TYPES)[number], string> = {
-  debit: "Debit / Checking",
-  credit_card: "Credit card",
-  voucher: "Voucher",
-  brokerage: "Brokerage",
-  cash: "Cash",
-  savings: "Savings",
-};
+import {
+  ACCOUNT_TYPES,
+  ACCOUNT_TYPE_LABEL,
+  type Account,
+} from "./schemas";
 
 const CURRENCIES = ["BRL", "USD", "EUR"] as const;
 
-const COLOR_PRESETS = [
-  "#FACC15",
-  "#0EA5E9",
-  "#15803D",
-  "#B91C1C",
-  "#6D28D9",
-  "#0F172A",
-  "#22C55E",
-  "#EA580C",
-  "#A8A29E",
-];
-
 const FormSchema = z.object({
-  name: z.string().min(1, "Required").max(60, "Too long"),
   type: z.enum(ACCOUNT_TYPES),
-  short_name: z.string().max(20, "Too long").optional(),
-  last4: z
-    .string()
-    .regex(/^\d{0,4}$/, "Up to 4 digits")
-    .optional(),
-  color: z.string().optional(),
   opening_balance: z.string(),
+  credit_limit: z.string().optional(),
   currency: z.enum(CURRENCIES),
 });
 
@@ -57,6 +34,8 @@ type FormValues = z.infer<typeof FormSchema>;
 
 interface Props {
   initial?: Account | null;
+  /** Source id this account belongs to (or will belong to on create). */
+  sourceId: string;
   onSubmit: (input: NewAccountInput) => void;
   onCancel: () => void;
   submitting?: boolean;
@@ -69,31 +48,37 @@ function centsToInput(cents: number): string {
   });
 }
 
-export function AccountForm({ initial, onSubmit, onCancel, submitting }: Props) {
+export function AccountForm({
+  initial,
+  sourceId,
+  onSubmit,
+  onCancel,
+  submitting,
+}: Props) {
   const form = useForm<FormValues>({
     resolver: zodResolver(FormSchema),
     defaultValues: initial
       ? {
-          name: initial.name,
           type: initial.type,
-          short_name: initial.short_name ?? "",
-          last4: initial.last4 ?? "",
-          color: initial.color ?? COLOR_PRESETS[0],
           opening_balance: centsToInput(initial.opening_balance_cents),
+          credit_limit:
+            initial.credit_limit_cents != null
+              ? centsToInput(initial.credit_limit_cents)
+              : "",
           currency: (CURRENCIES as readonly string[]).includes(initial.currency)
             ? (initial.currency as (typeof CURRENCIES)[number])
             : "BRL",
         }
       : {
-          name: "",
-          type: "debit",
-          short_name: "",
-          last4: "",
-          color: COLOR_PRESETS[0],
+          type: "checking",
           opening_balance: "",
+          credit_limit: "",
           currency: "BRL",
         },
   });
+
+  const selectedType = form.watch("type");
+  const isChecking = selectedType === "checking";
 
   const handleSubmit = form.handleSubmit((values) => {
     const cents = values.opening_balance.trim()
@@ -103,35 +88,37 @@ export function AccountForm({ initial, onSubmit, onCancel, submitting }: Props) 
       form.setError("opening_balance", { message: "Enter a valid amount" });
       return;
     }
+    let creditLimit: number | null = null;
+    if (isChecking && values.credit_limit && values.credit_limit.trim()) {
+      const ll = parseAmountToCents(values.credit_limit);
+      if (ll === null) {
+        form.setError("credit_limit", { message: "Enter a valid amount" });
+        return;
+      }
+      creditLimit = ll;
+    }
     onSubmit({
-      name: values.name.trim(),
+      source_id: sourceId,
+      // Account name is derived from the type label; the user no longer
+      // names accounts (the parent source is what carries identity).
+      name: ACCOUNT_TYPE_LABEL[values.type],
       type: values.type,
-      short_name: values.short_name?.trim() || null,
-      last4: values.last4?.trim() || null,
-      color: values.color ?? null,
+      short_name: null,
+      last4: null,
+      // Account color is inherited from the parent source — see dashboard
+      // surfaces, which read source.color via the display helpers.
+      color: null,
       icon: null,
       opening_balance_cents: cents,
+      credit_limit_cents: creditLimit,
       currency: values.currency,
     });
   });
 
   const errors = form.formState.errors;
-  const selectedColor = form.watch("color");
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="acc-name">Name</Label>
-        <Input
-          id="acc-name"
-          placeholder="Checking, Brokerage, …"
-          {...form.register("name")}
-        />
-        {errors.name && (
-          <span className="text-xs text-expense">{errors.name.message}</span>
-        )}
-      </div>
-
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="acc-type">Type</Label>
@@ -141,12 +128,12 @@ export function AccountForm({ initial, onSubmit, onCancel, submitting }: Props) 
             render={({ field }) => (
               <Select value={field.value} onValueChange={field.onChange}>
                 <SelectTrigger id="acc-type">
-                  <SelectValue />
+                  <SelectValue placeholder="Choose…" />
                 </SelectTrigger>
                 <SelectContent>
                   {ACCOUNT_TYPES.map((t) => (
                     <SelectItem key={t} value={t}>
-                      {TYPE_LABEL[t]}
+                      {ACCOUNT_TYPE_LABEL[t]}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -178,31 +165,6 @@ export function AccountForm({ initial, onSubmit, onCancel, submitting }: Props) 
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="acc-short">Short label</Label>
-          <Input
-            id="acc-short"
-            placeholder="CC, VR, …"
-            maxLength={20}
-            {...form.register("short_name")}
-          />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="acc-last4">Last 4 digits</Label>
-          <Input
-            id="acc-last4"
-            placeholder="1234"
-            maxLength={4}
-            inputMode="numeric"
-            {...form.register("last4")}
-          />
-          {errors.last4 && (
-            <span className="text-xs text-expense">{errors.last4.message}</span>
-          )}
-        </div>
-      </div>
-
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="acc-opening">Opening balance</Label>
         <Input
@@ -221,32 +183,26 @@ export function AccountForm({ initial, onSubmit, onCancel, submitting }: Props) 
         )}
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label>Color</Label>
-        <Controller
-          control={form.control}
-          name="color"
-          render={({ field }) => (
-            <div className="flex flex-wrap gap-2">
-              {COLOR_PRESETS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => field.onChange(c)}
-                  aria-label={`Color ${c}`}
-                  className={
-                    "h-7 w-7 rounded-full border-2 transition-transform " +
-                    (selectedColor === c
-                      ? "border-text scale-110"
-                      : "border-transparent hover:scale-105")
-                  }
-                  style={{ background: c }}
-                />
-              ))}
-            </div>
+      {isChecking && (
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="acc-limit">Credit card limit</Label>
+          <Input
+            id="acc-limit"
+            inputMode="decimal"
+            placeholder="0.00"
+            {...form.register("credit_limit")}
+          />
+          <span className="text-[11.5px] text-text-faint">
+            Total credit card spending cap attached to this checking. Leave
+            blank if no card is linked.
+          </span>
+          {errors.credit_limit && (
+            <span className="text-xs text-expense">
+              {errors.credit_limit.message}
+            </span>
           )}
-        />
-      </div>
+        </div>
+      )}
 
       <div className="mt-2 flex justify-end gap-2">
         <Button type="button" variant="ghost" onClick={onCancel}>

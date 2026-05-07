@@ -116,16 +116,58 @@ Depends on step 4 (balances) and step 6a (KPI shell + range chips).
 - `src/features/dashboard/net-worth-chart.tsx`: 12-month line with gradient fill (Recharts `Area`). Compute monthly snapshots client-side from transactions + opening balances. Segmented selector 3M / 6M / 1Y / All — URL-bound `nw=` param.
 - Replace the dashboard page's recent-list block with the new layout; keep the Recent transactions card at the bottom.
 
-### Step 7 — Categories page
+### Step 7 — Categories page + Sources / payment-methods / credit-card model overhaul
 
-- New `src/features/categories/{categories-page.tsx (rewrite), category-card.tsx, category-form.tsx, mutations.ts}`.
+This step ended up doing two things in one commit. The Categories rewrite is small; the schema overhaul that followed it is larger and rewrites the source/account model after live discussion with the user. Both landed together because the user wanted to refine the source model before pushing the Categories work.
+
+**7a — Categories page.**
+
+- New `src/features/categories/{categories-page.tsx (rewrite), category-card.tsx, category-form.tsx, mutations.ts, icons.ts}`.
 - Card grid: colored icon square, name, type chip, transaction count (computed from `useTransactions`), 3-dot menu.
 - New / edit / delete dialogs. Delete blocks if count > 0; edit allows changing type, color, icon, name (existing transactions keep their old `category_id`, no cascading rewrites — the column already does `on delete set null`).
-- Sort: type then alphabetical. Drag-to-reorder deferred.
+- Sort: by type, then alphabetical within each type. Drag-to-reorder deferred.
 
-### Step 8 — Migration 004 + Investments page
+**7b — Sources, payment methods, credit-card model.**
 
-- `supabase/migrations/004_holdings.sql`:
+The pre-7 model treated each "account" as flat (debit, credit_card, voucher, brokerage, cash, savings). After implementing 7a the user pushed back: the user's mental model is **Source → accounts**, where a Source is a real institution (BTG, Nubank, Brex, Pluxxee). Credit card is *not* an account — it's a credit limit attached to a checking account. CC charges accumulate as outstanding and don't debit checking until the bill is paid.
+
+- `supabase/migrations/004_sources_payment_methods.sql`:
+  - New `sources(id, user_id, name, kind ∈ {bank,benefits,broker,cash,custom}, color, icon, archived_at, timestamps)` with RLS.
+  - New `source_payment_methods(source_id, method ∈ {pix,debit_card,credit_card,transfer,wire,cash,voucher})` with parent-source RLS.
+  - `accounts`: add `source_id uuid not null`, add `credit_limit_cents bigint nullable`. `accounts.type` rename `debit → checking`, drop `credit_card`. Final kinds: checking, savings, brokerage, voucher, cash.
+  - `transactions`: add `payment_method` (enum) and `settled_at timestamptz nullable`. Check constraint: `settled_at` only valid when `payment_method = 'credit_card'`.
+  - Re-derive `account_balances_v` so unsettled CC charges (where `payment_method='credit_card' AND settled_at IS NULL`) **do not** subtract from the balance. Once settled they do.
+  - New `credit_card_outstanding_v`: per-checking sum of unsettled CC charges. Backs the dashboard "Credit cards" card.
+  - **Wipe + re-seed.** Per the user, transactions + accounts get truncated; the new-user trigger replaces the seed (1 default Source "Personal" with checking/savings/investments + 4 methods). A `do $$ … $$` block re-seeds existing users. Categories are preserved.
+- New `src/features/sources/{schemas, queries, mutations, source-form}.ts(x)`.
+- New `src/features/settings/sources-section.tsx` replaces `accounts-section.tsx` (deleted). Lists each source with its inner accounts + chip row of enabled methods. Edit / archive at both source and account levels. "Add account to <source>" affordance per source row.
+- New `src/features/accounts/credit-card-queries.ts` exposes `useCreditCardOutstanding()`.
+- `src/features/accounts/account-form.tsx` rewritten for the new model: drops the `debit/credit_card` choices; gains a conditional `credit_limit_cents` input visible only when `type=checking`. Source membership is supplied by the parent dialog (`sourceId` prop).
+- `src/features/transactions/transaction-form.tsx` rewritten around **Source + Account + Payment method** pickers. Account picker is filtered to the chosen source and the transaction type (e.g., investment type only shows brokerage accounts). Payment method picker is filtered to the source's enabled methods, with sensible defaults per account kind.
+- `src/features/transactions/transactions-table.tsx` adds a "Method" column with a small chip and an "unsettled" indicator dot for `payment_method='credit_card' AND settled_at IS NULL`.
+- New `src/features/dashboard/credit-cards.tsx`: shows per-checking-with-credit-limit row of outstanding/limit/available, a global available-vs-limit summary in the header, and a per-row **Pay bill** button. Confirming the dialog calls `useSettleCreditCardBill(accountId)`, which stamps `settled_at = now()` on every unsettled CC row for that account; the balance view then automatically recomputes the checking balance to include those charges as expenses.
+
+Migrations 005–009 in this plan were renumbered through several refinement rounds:
+- 005 → `005_source_nickname.sql` (adds `sources.short_name`).
+- 006 → `006_drop_voucher_cash_account_types.sql` (voucher/cash are payment methods, not account kinds; account.type is now `checking | savings | brokerage`).
+- holdings (originally 004) → 007.
+- recurring (originally 005) → 008.
+- budgets (originally 006) → 009.
+
+After 7b, several UX refinements landed in the same commit (no schema needed beyond 005/006):
+
+- `sources.short_name` ("nickname") gains a dedicated input in the source edit/create dialog. New `src/features/sources/display.ts` helpers (`sourceLabel`, `accountDisplayLabel`, `accountDisplayColor`) are the single source of truth for label + color across surfaces.
+- The Show / Hide archived button in `sources-section.tsx` filters BOTH archived sources AND archived accounts within each source.
+- The color picker is removed from `account-form.tsx`; account color is inherited from the parent source.
+- The account name input is removed from `account-form.tsx` *and* from the per-account checklist in `source-form.tsx`. Names are derived from `ACCOUNT_TYPE_LABEL[type]` automatically.
+- Transactions page filter chips switched from per-account to per-source (URL `?source=`); the Source column in the table shows just the source label (the description column still carries the affected account name in its sub-line).
+- Dashboard `accounts-list.tsx` rewritten as a per-source rollup: one expandable row per source with the full institution name and the summed balance across its accounts; expanding shows the inner accounts (type label + balance).
+
+The `## Critical files` list and Sequencing diagram below reflect the renumbering.
+
+### Step 8 — Migration 007 + Investments page
+
+- `supabase/migrations/007_holdings.sql`:
   - `create table holdings (id uuid pk, user_id, account_id references accounts, ticker, name, shares numeric(20,6), avg_cost_cents bigint, current_price_cents bigint, currency, notes text, timestamps)`. RLS policies in same migration.
   - `alter table transactions add column holding_id uuid references holdings(id) on delete set null`.
 - New `src/features/investments/{schemas.ts, queries.ts, mutations.ts, holdings-table.tsx, holding-form.tsx, investments-page.tsx (rewrite)}`.
@@ -161,9 +203,9 @@ The Accounts tab already exists from step 4. This step builds the other three.
 - Preferences tab: currency (BRL / USD / EUR — display-only until step 15), language (EN / PT-BR — stored as preference, no i18n yet). Both extend `useUIStore` in `src/stores/ui-store.ts:6-13`.
 - Data tab: CSV import (re-uses `lib/csv.ts` reader; new `src/lib/csv-import.ts` for parsing + column mapping UI), full data export as JSON (transactions + accounts + categories + holdings).
 
-### Step 13 — Migration 005 + Recurring rules
+### Step 13 — Migration 008 + Recurring rules
 
-- `supabase/migrations/005_recurring_rules.sql`:
+- `supabase/migrations/008_recurring_rules.sql`:
   - `create table recurring_rules (id, user_id, name, type, amount_cents, account_id, category_id, cadence text check in ('daily','weekly','monthly','yearly'), anchor_date, next_run_date, end_date nullable, active bool default true, timestamps)`. RLS in same file.
   - `alter table transactions add column rule_id uuid references recurring_rules(id) on delete set null`.
   - `alter table transactions add column period_start date`.
@@ -172,9 +214,9 @@ The Accounts tab already exists from step 4. This step builds the other three.
 - `materializer.ts`: runs in `useEffect` on app mount; for each active rule, walks from `next_run_date` to today and inserts a transaction with `(rule_id, period_start)` for each missing period. Idempotent via the unique index — re-runs are safe. Updates `next_run_date` after each successful insert batch.
 - "Recurring" badge in the transactions table when `rule_id is not null` — extend `src/features/transactions/transactions-table.tsx` to render a small chip.
 
-### Step 14 — Migration 006 + Budgets
+### Step 14 — Migration 009 + Budgets
 
-- `supabase/migrations/006_budgets.sql`: `create table budgets (id, user_id, category_id, monthly_cents, period_start date, timestamps)`. RLS in same file. Unique on `(category_id, period_start)`.
+- `supabase/migrations/009_budgets.sql`: `create table budgets (id, user_id, category_id, monthly_cents, period_start date, timestamps)`. RLS in same file. Unique on `(category_id, period_start)`.
 - New `src/features/budgets/{budget-form.tsx, budget-progress.tsx, mutations.ts, queries.ts}`.
 - Categories page (step 7) gets a per-card progress bar (current month spend / budget). Edit budget inline from the card menu.
 - Insights detector: "Groceries 110% of budget" — wires into step 11's pattern engine.
@@ -219,9 +261,12 @@ The Accounts tab already exists from step 4. This step builds the other three.
 
 ```
 supabase/migrations/003_accounts_balance_transfers.sql
-supabase/migrations/004_holdings.sql
-supabase/migrations/005_recurring_rules.sql
-supabase/migrations/006_budgets.sql
+supabase/migrations/004_sources_payment_methods.sql
+supabase/migrations/005_source_nickname.sql
+supabase/migrations/006_drop_voucher_cash_account_types.sql
+supabase/migrations/007_holdings.sql
+supabase/migrations/008_recurring_rules.sql
+supabase/migrations/009_budgets.sql
 src/components/ui/command.tsx                 # shadcn cmdk wrapper
 src/components/ui/sonner.tsx                  # shadcn sonner wrapper (Toaster)
 src/components/ui/slider.tsx                  # for simulator + budgets (step 10/14)
@@ -288,7 +333,7 @@ Each step ships green typecheck (`pnpm typecheck`), green build (`pnpm build`), 
 - **Step 5** — `⌘K` opens palette from any route; arrow keys navigate; enter triggers; esc closes. FAB visible on every authenticated route, opens new-tx dialog.
 - **Step 6a** — KPI MoM delta correct on a manually crafted dataset (one month doubled). Time-range chips bookmark via URL.
 - **Step 6b** — Cashflow chart matches a hand-summed week. Net-worth line matches sum of derived balances at month-end.
-- **Step 7** — Count badge equals active count per category. Deleting a non-empty category is blocked.
+- **Step 7** — (a) Count badge equals active count per category; deleting a non-empty category is blocked. (b) Create a Source "BTG" with checking + investments and methods PIX/credit_card/transfer; record an Expense via credit_card → checking balance unchanged, CC outstanding rises, dashboard "Credit cards" shows used/limit. Click "Pay bill" → settled charges drop into the checking balance and outstanding goes to zero.
 - **Step 8** — Buy 5 VTSAX via tx dialog → holding shares + cost basis update; portfolio KPI reflects new value.
 - **Step 9** — Calendar shows correct daily aggregates; click empty day → empty-state.
 - **Step 10** — Simulator pre-fills from real averages; FV math sanity-checked vs hand calc (`PMT=1000, r=0.06, n=12 → ~12,335`).

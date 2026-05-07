@@ -6,10 +6,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useAccounts } from "@/features/accounts/queries";
 import { useAuth } from "@/features/auth/auth-context";
 import { useCategories } from "@/features/categories/queries";
-import { AccountsSection } from "@/features/settings/accounts-section";
+import { SourcesSection } from "@/features/settings/sources-section";
+import { useSources } from "@/features/sources/queries";
 import { useTransactions } from "@/features/transactions/queries";
 import { cn } from "@/lib/utils";
 import { useUIStore } from "@/stores/ui-store";
@@ -40,7 +40,7 @@ export function SettingsPage() {
           <ProfileTab />
         </TabsContent>
         <TabsContent value="accounts">
-          <AccountsSection />
+          <SourcesSection />
         </TabsContent>
         <TabsContent value="preferences">
           <PreferencesTab />
@@ -109,7 +109,7 @@ function PreferencesTab() {
 }
 
 function DataTab() {
-  const accounts = useAccounts();
+  const sources = useSources();
   const categories = useCategories();
   const transactions = useTransactions();
   return (
@@ -122,7 +122,7 @@ function DataTab() {
         </CardDescription>
       </CardHeader>
       <CardContent className="grid grid-cols-3 gap-3">
-        <ConnCell label="Sources" query={accounts} />
+        <ConnCell label="Sources" query={sources} />
         <ConnCell label="Categories" query={categories} />
         <ConnCell label="Transactions" query={transactions} />
       </CardContent>

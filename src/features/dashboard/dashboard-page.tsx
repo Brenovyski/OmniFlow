@@ -17,6 +17,7 @@ import { useModalStore } from "@/stores/modal-store";
 
 import { AccountsList } from "./accounts-list";
 import { CashflowChart } from "./cashflow-chart";
+import { CreditCards } from "./credit-cards";
 import { KpiCard } from "./kpi-card";
 import { NetWorthChart } from "./net-worth-chart";
 import { computeRangeStats } from "./stats";
@@ -136,6 +137,8 @@ export function DashboardPage() {
         </div>
         <AccountsList />
       </div>
+
+      <CreditCards />
 
       <Card>
         <CardHeader>

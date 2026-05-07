@@ -15,7 +15,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAccounts } from "@/features/accounts/queries";
+import type { Account } from "@/features/accounts/schemas";
 import { useCategories } from "@/features/categories/queries";
+import {
+  methodsBySourceId,
+  useSourcePaymentMethods,
+  useSources,
+} from "@/features/sources/queries";
+import {
+  PAYMENT_METHODS,
+  PAYMENT_METHOD_LABEL,
+  type PaymentMethod,
+} from "@/features/sources/schemas";
 import {
   TRANSACTION_TYPES,
   type Transaction,
@@ -41,7 +52,10 @@ const FormSchema = z
   .object({
     type: z.enum(TRANSACTION_TYPES),
     amount: z.string().min(1, "Required"),
-    account_id: z.string().min(1, "Pick a source"),
+    source_id: z.string().min(1, "Pick a source"),
+    account_id: z.string().min(1, "Pick an account"),
+    payment_method: z.enum(PAYMENT_METHODS).optional(),
+    transfer_source_id: z.string(),
     transfer_account_id: z.string(),
     category_id: z.string(),
     date: z.date({ message: "Pick a date" }),
@@ -82,6 +96,21 @@ function centsToInput(cents: number): string {
   });
 }
 
+function defaultMethodForAccount(
+  account: Account | undefined,
+): PaymentMethod | undefined {
+  if (!account) return undefined;
+  switch (account.type) {
+    case "checking":
+      return "pix";
+    case "savings":
+    case "brokerage":
+      return "transfer";
+    default:
+      return undefined;
+  }
+}
+
 export function TransactionForm({
   initial,
   onSubmit,
@@ -90,26 +119,29 @@ export function TransactionForm({
   submitLabel,
 }: Props) {
   const accountsQ = useAccounts();
+  const sourcesQ = useSources();
+  const methodsQ = useSourcePaymentMethods();
   const categoriesQ = useCategories();
 
   const allAccounts = accountsQ.data ?? [];
-  // Active accounts (non-archived) for source/destination pickers.
-  // Existing transactions can still reference an archived account, so when
-  // editing we surface that account too.
-  const activeAccounts = useMemo(() => {
-    const active = allAccounts.filter((a) => !a.archived_at);
-    if (initial) {
-      const ensure = (id: string | null | undefined) => {
-        if (!id) return;
-        if (active.some((a) => a.id === id)) return;
-        const archived = allAccounts.find((a) => a.id === id);
-        if (archived) active.push(archived);
-      };
-      ensure(initial.account_id);
-      ensure(initial.transfer_account_id);
-    }
-    return active;
-  }, [allAccounts, initial]);
+  const allSources = sourcesQ.data ?? [];
+  const methodsBySource = useMemo(
+    () => methodsBySourceId(methodsQ.data ?? []),
+    [methodsQ.data],
+  );
+
+  const activeSources = useMemo(
+    () => allSources.filter((s) => !s.archived_at),
+    [allSources],
+  );
+
+  // Resolve the source for an account id (used to back-fill the form on edit
+  // and to keep the source picker in sync when an account is changed).
+  const accountById = useMemo(() => {
+    const m = new Map<string, Account>();
+    for (const a of allAccounts) m.set(a.id, a);
+    return m;
+  }, [allAccounts]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(FormSchema),
@@ -117,7 +149,12 @@ export function TransactionForm({
       ? {
           type: initial.type,
           amount: centsToInput(initial.amount_cents),
+          source_id: accountById.get(initial.account_id)?.source_id ?? "",
           account_id: initial.account_id,
+          payment_method: initial.payment_method ?? undefined,
+          transfer_source_id: initial.transfer_account_id
+            ? (accountById.get(initial.transfer_account_id)?.source_id ?? "")
+            : "",
           transfer_account_id: initial.transfer_account_id ?? "",
           category_id: initial.category_id ?? NONE_CATEGORY,
           date: parseISODate(initial.date),
@@ -126,7 +163,10 @@ export function TransactionForm({
       : {
           type: "expense",
           amount: "",
+          source_id: "",
           account_id: "",
+          payment_method: undefined,
+          transfer_source_id: "",
           transfer_account_id: "",
           category_id: NONE_CATEGORY,
           date: new Date(),
@@ -134,26 +174,125 @@ export function TransactionForm({
         },
   });
 
-  // Auto-pick first active account on create when accounts load.
-  useEffect(() => {
-    if (initial) return;
-    if (!form.getValues("account_id") && activeAccounts.length > 0) {
-      form.setValue("account_id", activeAccounts[0]!.id);
-    }
-  }, [activeAccounts, form, initial]);
-
   const selectedType = form.watch("type");
-  const sourceId = form.watch("account_id");
+  const sourceId = form.watch("source_id");
+  const accountId = form.watch("account_id");
+  const transferSourceId = form.watch("transfer_source_id");
 
   const isTransfer = selectedType === "transfer";
 
-  // Filter the category dropdown to the current transaction type.
+  // Accounts inside the chosen source, with a small filter by tx type so the
+  // picker doesn't suggest a brokerage for an expense, etc. Keeps an archived
+  // account visible if we're editing a tx that already references it.
+  const accountsForSource = useMemo(() => {
+    const inSource = allAccounts.filter(
+      (a) => a.source_id === sourceId && !a.archived_at,
+    );
+    if (initial && initial.account_id) {
+      const ensure = accountById.get(initial.account_id);
+      if (ensure && ensure.source_id === sourceId && !inSource.some((a) => a.id === ensure.id)) {
+        inSource.push(ensure);
+      }
+    }
+    return filterAccountsByType(inSource, selectedType);
+  }, [allAccounts, sourceId, selectedType, initial, accountById]);
+
+  const accountsForTransferSource = useMemo(() => {
+    const inSource = allAccounts.filter(
+      (a) => a.source_id === transferSourceId && !a.archived_at,
+    );
+    return inSource.filter((a) => a.id !== accountId);
+  }, [allAccounts, transferSourceId, accountId]);
+
+  // Source's enabled methods. Empty list = nothing configured.
+  const methodsForSource = useMemo(
+    () => methodsBySource.get(sourceId) ?? [],
+    [methodsBySource, sourceId],
+  );
+
+  // Auto-pick first source on create.
+  useEffect(() => {
+    if (initial) return;
+    if (!form.getValues("source_id") && activeSources.length > 0) {
+      form.setValue("source_id", activeSources[0]!.id);
+    }
+  }, [activeSources, form, initial]);
+
+  // When source changes, reset account if it no longer belongs to the source.
+  useEffect(() => {
+    if (!sourceId) return;
+    const current = form.getValues("account_id");
+    if (current && accountById.get(current)?.source_id !== sourceId) {
+      form.setValue("account_id", "");
+    }
+  }, [sourceId, form, accountById]);
+
+  // Auto-pick first matching account when none is set.
+  useEffect(() => {
+    if (initial) return;
+    const current = form.getValues("account_id");
+    if (current) return;
+    if (accountsForSource.length === 0) return;
+    form.setValue("account_id", accountsForSource[0]!.id);
+  }, [accountsForSource, form, initial]);
+
+  // Default payment method when the account changes (only on create).
+  useEffect(() => {
+    if (initial) return;
+    if (!accountId) return;
+    const acc = accountById.get(accountId);
+    const def = defaultMethodForAccount(acc);
+    if (!def) return;
+    // Only set if currently unset or invalid for the new source.
+    const currentMethod = form.getValues("payment_method");
+    if (!currentMethod || !methodsForSource.includes(currentMethod)) {
+      if (methodsForSource.includes(def)) {
+        form.setValue("payment_method", def);
+      } else if (methodsForSource.length > 0) {
+        form.setValue("payment_method", methodsForSource[0]);
+      }
+    }
+  }, [accountId, methodsForSource, form, initial, accountById]);
+
+  // Reset transfer-source when leaving transfer.
+  useEffect(() => {
+    if (!isTransfer) {
+      if (form.getValues("transfer_source_id")) {
+        form.setValue("transfer_source_id", "");
+      }
+      if (form.getValues("transfer_account_id")) {
+        form.setValue("transfer_account_id", "");
+      }
+    } else if (!form.getValues("transfer_source_id")) {
+      // default destination = same source
+      form.setValue("transfer_source_id", sourceId);
+    }
+  }, [isTransfer, sourceId, form]);
+
+  // Reset transfer-account if its source no longer matches.
+  useEffect(() => {
+    if (!isTransfer) return;
+    const dest = form.getValues("transfer_account_id");
+    if (dest && accountById.get(dest)?.source_id !== transferSourceId) {
+      form.setValue("transfer_account_id", "");
+    }
+  }, [transferSourceId, isTransfer, form, accountById]);
+
+  // Pick first valid destination automatically.
+  useEffect(() => {
+    if (!isTransfer) return;
+    const dest = form.getValues("transfer_account_id");
+    if (dest) return;
+    if (accountsForTransferSource.length === 0) return;
+    form.setValue("transfer_account_id", accountsForTransferSource[0]!.id);
+  }, [accountsForTransferSource, isTransfer, form]);
+
+  // Filter category dropdown by type (unchanged).
   const categoriesForType = useMemo(
     () => (categoriesQ.data ?? []).filter((c) => c.type === selectedType),
     [categoriesQ.data, selectedType],
   );
 
-  // When the type changes, drop a category that doesn't belong to the new type.
   useEffect(() => {
     const currentId = form.getValues("category_id");
     if (currentId === NONE_CATEGORY) return;
@@ -162,23 +301,6 @@ export function TransactionForm({
       form.setValue("category_id", NONE_CATEGORY);
     }
   }, [selectedType, categoriesQ.data, form]);
-
-  // Switching away from transfer clears the destination so it can't sneak
-  // through stale.
-  useEffect(() => {
-    if (!isTransfer && form.getValues("transfer_account_id")) {
-      form.setValue("transfer_account_id", "");
-    }
-  }, [isTransfer, form]);
-
-  // Switching to transfer auto-picks a different account as destination.
-  useEffect(() => {
-    if (!isTransfer) return;
-    const dest = form.getValues("transfer_account_id");
-    if (dest && dest !== sourceId) return;
-    const candidate = activeAccounts.find((a) => a.id !== sourceId);
-    if (candidate) form.setValue("transfer_account_id", candidate.id);
-  }, [isTransfer, sourceId, activeAccounts, form]);
 
   const handleSubmit = form.handleSubmit((values) => {
     const cents = parseAmountToCents(values.amount);
@@ -192,6 +314,10 @@ export function TransactionForm({
       account_id: values.account_id,
       transfer_account_id:
         values.type === "transfer" ? values.transfer_account_id : null,
+      payment_method:
+        values.type === "transfer"
+          ? "transfer"
+          : (values.payment_method ?? null),
       category_id:
         values.type === "transfer"
           ? null
@@ -264,17 +390,48 @@ export function TransactionForm({
 
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="tx-account">{isTransfer ? "From" : "Source"}</Label>
+          <Label htmlFor="tx-source">{isTransfer ? "From source" : "Source"}</Label>
+          <Controller
+            control={form.control}
+            name="source_id"
+            render={({ field }) => (
+              <Select value={field.value} onValueChange={field.onChange}>
+                <SelectTrigger id="tx-source">
+                  <SelectValue placeholder="Choose…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeSources.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="tx-account">{isTransfer ? "From account" : "Account"}</Label>
           <Controller
             control={form.control}
             name="account_id"
             render={({ field }) => (
-              <Select value={field.value} onValueChange={field.onChange}>
+              <Select
+                value={field.value}
+                onValueChange={field.onChange}
+                disabled={accountsForSource.length === 0}
+              >
                 <SelectTrigger id="tx-account">
-                  <SelectValue placeholder="Choose…" />
+                  <SelectValue
+                    placeholder={
+                      accountsForSource.length === 0
+                        ? "No accounts here"
+                        : "Choose…"
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
-                  {activeAccounts.map((a) => (
+                  {accountsForSource.map((a) => (
                     <SelectItem key={a.id} value={a.id}>
                       {a.name}
                     </SelectItem>
@@ -289,26 +446,57 @@ export function TransactionForm({
             </span>
           )}
         </div>
+      </div>
 
-        {isTransfer ? (
+      {isTransfer ? (
+        <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="tx-dest">To</Label>
+            <Label htmlFor="tx-tsource">To source</Label>
+            <Controller
+              control={form.control}
+              name="transfer_source_id"
+              render={({ field }) => (
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger id="tx-tsource">
+                    <SelectValue placeholder="Choose…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {activeSources.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="tx-dest">To account</Label>
             <Controller
               control={form.control}
               name="transfer_account_id"
               render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
+                <Select
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  disabled={accountsForTransferSource.length === 0}
+                >
                   <SelectTrigger id="tx-dest">
-                    <SelectValue placeholder="Choose…" />
+                    <SelectValue
+                      placeholder={
+                        accountsForTransferSource.length === 0
+                          ? "No accounts here"
+                          : "Choose…"
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
-                    {activeAccounts
-                      .filter((a) => a.id !== sourceId)
-                      .map((a) => (
-                        <SelectItem key={a.id} value={a.id}>
-                          {a.name}
-                        </SelectItem>
-                      ))}
+                    {accountsForTransferSource.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               )}
@@ -319,7 +507,43 @@ export function TransactionForm({
               </span>
             )}
           </div>
-        ) : (
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="tx-method">Payment method</Label>
+            <Controller
+              control={form.control}
+              name="payment_method"
+              render={({ field }) => (
+                <Select
+                  value={field.value ?? ""}
+                  onValueChange={(v) =>
+                    field.onChange(v ? (v as PaymentMethod) : undefined)
+                  }
+                  disabled={methodsForSource.length === 0}
+                >
+                  <SelectTrigger id="tx-method">
+                    <SelectValue
+                      placeholder={
+                        methodsForSource.length === 0
+                          ? "Source has no methods"
+                          : "Choose…"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {methodsForSource.map((m) => (
+                      <SelectItem key={m} value={m}>
+                        {PAYMENT_METHOD_LABEL[m]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </div>
+
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="tx-category">Category</Label>
             <Controller
@@ -342,8 +566,8 @@ export function TransactionForm({
               )}
             />
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       <div className="flex flex-col gap-1.5">
         <Label>Date</Label>
@@ -371,4 +595,20 @@ export function TransactionForm({
       </div>
     </form>
   );
+}
+
+function filterAccountsByType(
+  accounts: Account[],
+  txType: (typeof TRANSACTION_TYPES)[number],
+): Account[] {
+  switch (txType) {
+    case "investment":
+      // Investment inflows land in a brokerage account.
+      return accounts.filter((a) => a.type === "brokerage");
+    case "expense":
+      // Don't expense from a brokerage; everything else is fair game.
+      return accounts.filter((a) => a.type !== "brokerage");
+    default:
+      return accounts;
+  }
 }
