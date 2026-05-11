@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "pluggy-sdk": "npm:pluggy-sdk@0.85.2",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2"
+  }
+}
