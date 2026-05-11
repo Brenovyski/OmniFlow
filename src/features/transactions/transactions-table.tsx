@@ -1,4 +1,4 @@
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { MoreHorizontal, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import {
@@ -106,7 +106,36 @@ export function TransactionsTable({ rows, accounts, categories }: Props) {
                 >
                   <Td className="num text-text-muted">{fmtDate(tx.date)}</Td>
                   <Td>
-                    <div className="font-medium text-text">{tx.description}</div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={cn(
+                          "font-medium text-text",
+                          tx.pluggy_deleted_at && "line-through text-text-faint",
+                        )}
+                      >
+                        {tx.description}
+                      </span>
+                      {tx.pluggy_transaction_id && (
+                        <span
+                          className="inline-flex items-center gap-0.5 text-text-faint"
+                          title={
+                            tx.user_edited_fields.length > 0
+                              ? `Synced from Pluggy · you edited ${tx.user_edited_fields.join(", ")}`
+                              : "Synced from Pluggy"
+                          }
+                        >
+                          <RefreshCw className="size-3" />
+                          {tx.user_edited_fields.length > 0 && (
+                            <Pencil className="size-2.5" />
+                          )}
+                        </span>
+                      )}
+                      {tx.pluggy_deleted_at && (
+                        <span className="rounded-full bg-expense/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-expense">
+                          Reversed by bank
+                        </span>
+                      )}
+                    </div>
                     {acc && (
                       <div className="text-[11.5px] text-text-faint">
                         {acc.name}

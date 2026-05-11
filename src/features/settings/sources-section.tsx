@@ -1,4 +1,4 @@
-import { Archive, Pencil, Plus } from "lucide-react";
+import { Archive, Pencil, Plus, RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import {
@@ -37,6 +37,7 @@ import {
   useCreateSource,
   useUpdateSource,
 } from "@/features/sources/mutations";
+import { useSyncFromPluggy } from "@/features/sources/pluggy-mutations";
 import {
   methodsBySourceId,
   useSourcePaymentMethods,
@@ -44,12 +45,42 @@ import {
 } from "@/features/sources/queries";
 import {
   PAYMENT_METHOD_LABEL,
+  PluggySourceStatus,
   SOURCE_KIND_LABEL,
+  isPluggyManaged,
   type Source,
 } from "@/features/sources/schemas";
 import { SourceForm } from "@/features/sources/source-form";
 import { fmtMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
+
+const PLUGGY_STATUS_TONE: Record<PluggySourceStatus, string> = {
+  active: "bg-income",
+  updating: "bg-brand animate-pulse",
+  login_error: "bg-expense",
+  outdated: "bg-amber-500",
+  disconnected: "bg-text-faint",
+};
+
+const PLUGGY_STATUS_LABEL: Record<PluggySourceStatus, string> = {
+  active: "Synced",
+  updating: "Updating…",
+  login_error: "Login error",
+  outdated: "Out of date",
+  disconnected: "Disconnected",
+};
+
+function timeAgo(iso: string | null | undefined): string {
+  if (!iso) return "never";
+  const ms = Date.now() - new Date(iso).getTime();
+  const min = Math.floor(ms / 60_000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const d = Math.floor(hr / 24);
+  return `${d}d ago`;
+}
 
 export function SourcesSection() {
   const sourcesQ = useSources();
@@ -64,6 +95,7 @@ export function SourcesSection() {
   const createAccount = useCreateAccount();
   const updateAccount = useUpdateAccount();
   const archiveAccount = useArchiveAccount();
+  const syncFromPluggy = useSyncFromPluggy();
 
   const [sourceDialog, setSourceDialog] = useState<
     | { mode: "create" }
@@ -104,11 +136,244 @@ export function SourcesSection() {
   const visibleSources = showArchived
     ? sources
     : sources.filter((s) => !s.archived_at);
+  const pluggySources = visibleSources.filter(isPluggyManaged);
+  const manualSources = visibleSources.filter((s) => !isPluggyManaged(s));
 
   const submitting =
     createSource.isPending || updateSource.isPending || archiveSource.isPending;
   const accountSubmitting =
     createAccount.isPending || updateAccount.isPending;
+
+  function renderSourceCard(src: Source) {
+    const allSrcAccounts = accountsBySource.get(src.id) ?? [];
+    const srcAccounts = showArchived
+      ? allSrcAccounts
+      : allSrcAccounts.filter((a) => !a.archived_at);
+    const srcMethods = methodsBySource.get(src.id) ?? [];
+    const isArchived = !!src.archived_at;
+    const isPlg = isPluggyManaged(src);
+    const status = (src.pluggy_status ?? "active") as PluggySourceStatus;
+    return (
+      <div
+        key={src.id}
+        className={cn(
+          "rounded-card border border-border bg-surface",
+          isArchived && "opacity-60",
+        )}
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span
+              className="h-3 w-3 shrink-0 rounded-sm"
+              style={{ background: src.color ?? "#A8A29E" }}
+            />
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 font-display text-base font-semibold leading-tight">
+                {src.name}
+                {isPlg && (
+                  <span
+                    className={cn(
+                      "inline-block size-2 rounded-full",
+                      PLUGGY_STATUS_TONE[status],
+                    )}
+                    title={PLUGGY_STATUS_LABEL[status]}
+                  />
+                )}
+                {isArchived && (
+                  <span className="text-[10.5px] font-medium uppercase tracking-wider text-text-faint">
+                    archived
+                  </span>
+                )}
+              </div>
+              <div className="text-[11.5px] text-text-faint">
+                {src.short_name ? `${src.short_name} · ` : ""}
+                {SOURCE_KIND_LABEL[src.kind]}
+                {isPlg && (
+                  <>
+                    {" · "}
+                    {status === "login_error" ? (
+                      <a
+                        href="https://meu.pluggy.ai"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-expense underline"
+                      >
+                        Reconnect at meu.pluggy
+                      </a>
+                    ) : (
+                      <span>
+                        synced {timeAgo(src.pluggy_last_synced_at)}
+                      </span>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            {isPlg && !isArchived && (
+              <button
+                type="button"
+                onClick={() => syncFromPluggy.mutate(src.id)}
+                disabled={syncFromPluggy.isPending}
+                className="rounded-md p-1 text-text-faint hover:bg-surface-2 hover:text-text disabled:opacity-50"
+                aria-label={`Sync ${src.name} now`}
+                title="Sync now"
+              >
+                <RefreshCw
+                  className={cn(
+                    "size-4",
+                    syncFromPluggy.isPending && "animate-spin",
+                  )}
+                />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setSourceDialog({ mode: "edit", source: src })}
+              className="rounded-md p-1 text-text-faint hover:bg-surface-2 hover:text-text"
+              aria-label={`Edit ${src.name}`}
+            >
+              <Pencil className="size-4" />
+            </button>
+            {!isArchived && (
+              <button
+                type="button"
+                onClick={() => setArchiveSourceTarget(src)}
+                className="rounded-md p-1 text-text-faint hover:bg-surface-2 hover:text-text"
+                aria-label={`Archive ${src.name}`}
+              >
+                <Archive className="size-4" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {srcMethods.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 border-b border-border px-4 py-2.5">
+            {srcMethods.map((m) => (
+              <span
+                key={m}
+                className="rounded-full bg-surface-2 px-2 py-0.5 text-[10.5px] font-medium uppercase tracking-wider text-text-muted"
+              >
+                {PAYMENT_METHOD_LABEL[m]}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div>
+          {srcAccounts.length === 0 ? (
+            <div className="px-4 py-4 text-sm text-text-muted">
+              No accounts inside this source yet.
+            </div>
+          ) : (
+            <table className="w-full border-collapse">
+              <tbody>
+                {srcAccounts.map((acc) => {
+                  const balance = balancesQ.data?.get(acc.id);
+                  const accArchived = !!acc.archived_at;
+                  const ccUsed = ccOutstandingQ.data?.get(acc.id) ?? 0;
+                  return (
+                    <tr
+                      key={acc.id}
+                      className={cn(
+                        "group border-b border-border last:border-b-0 hover:bg-surface-2/60",
+                        accArchived && "opacity-60",
+                      )}
+                    >
+                      <td className="px-4 py-3 text-[13.5px]">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="h-2 w-2 shrink-0 rounded-sm"
+                            style={{ background: src.color ?? "#A8A29E" }}
+                          />
+                          <div className="min-w-0">
+                            <div className="font-medium text-text">
+                              {ACCOUNT_TYPE_LABEL[acc.type]}
+                              {accArchived && (
+                                <span className="ml-2 text-[10.5px] font-medium uppercase tracking-wider text-text-faint">
+                                  archived
+                                </span>
+                              )}
+                            </div>
+                            {acc.type === "checking" &&
+                              acc.credit_limit_cents != null && (
+                                <div className="text-[11.5px] text-text-faint">
+                                  CC limit{" "}
+                                  {fmtMoney(acc.credit_limit_cents, {
+                                    currency: acc.currency,
+                                  })}
+                                </div>
+                              )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right text-[13.5px]">
+                        <div className="num font-semibold">
+                          {balance !== undefined ? (
+                            fmtMoney(balance, { currency: acc.currency })
+                          ) : (
+                            <span className="text-text-faint">…</span>
+                          )}
+                        </div>
+                        {acc.type === "checking" && ccUsed > 0 && (
+                          <div className="text-[11px] text-text-faint">
+                            CC outstanding{" "}
+                            <span className="text-expense">
+                              {fmtMoney(ccUsed, { currency: acc.currency })}
+                            </span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setAccountDialog({ mode: "edit", account: acc })
+                            }
+                            className="rounded-md p-1 text-text-faint hover:bg-surface-2 hover:text-text"
+                            aria-label={`Edit ${acc.name}`}
+                          >
+                            <Pencil className="size-4" />
+                          </button>
+                          {!accArchived && (
+                            <button
+                              type="button"
+                              onClick={() => setArchiveAccountTarget(acc)}
+                              className="rounded-md p-1 text-text-faint hover:bg-surface-2 hover:text-text"
+                              aria-label={`Archive ${acc.name}`}
+                            >
+                              <Archive className="size-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {!isArchived && !isPlg && (
+          <div className="border-t border-border px-4 py-2">
+            <button
+              type="button"
+              onClick={() =>
+                setAccountDialog({ mode: "create", sourceId: src.id })
+              }
+              className="text-xs text-text-muted hover:text-text"
+            >
+              + Add account to {src.name}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -135,194 +400,45 @@ export function SourcesSection() {
           No sources yet. Add one above.
         </div>
       ) : (
-        <div className="flex flex-col gap-3">
-          {visibleSources.map((src) => {
-            const allSrcAccounts = accountsBySource.get(src.id) ?? [];
-            const srcAccounts = showArchived
-              ? allSrcAccounts
-              : allSrcAccounts.filter((a) => !a.archived_at);
-            const srcMethods = methodsBySource.get(src.id) ?? [];
-            const isArchived = !!src.archived_at;
-            return (
-              <div
-                key={src.id}
-                className={cn(
-                  "rounded-card border border-border bg-surface",
-                  isArchived && "opacity-60",
-                )}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-4 py-3">
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <span
-                      className="h-3 w-3 shrink-0 rounded-sm"
-                      style={{ background: src.color ?? "#A8A29E" }}
-                    />
-                    <div className="min-w-0">
-                      <div className="font-display text-base font-semibold leading-tight">
-                        {src.name}
-                        {isArchived && (
-                          <span className="ml-2 text-[10.5px] font-medium uppercase tracking-wider text-text-faint">
-                            archived
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[11.5px] text-text-faint">
-                        {src.short_name ? `${src.short_name} · ` : ""}
-                        {SOURCE_KIND_LABEL[src.kind]}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setSourceDialog({ mode: "edit", source: src })}
-                      className="rounded-md p-1 text-text-faint hover:bg-surface-2 hover:text-text"
-                      aria-label={`Edit ${src.name}`}
-                    >
-                      <Pencil className="size-4" />
-                    </button>
-                    {!isArchived && (
-                      <button
-                        type="button"
-                        onClick={() => setArchiveSourceTarget(src)}
-                        className="rounded-md p-1 text-text-faint hover:bg-surface-2 hover:text-text"
-                        aria-label={`Archive ${src.name}`}
-                      >
-                        <Archive className="size-4" />
-                      </button>
+        <div className="flex flex-col gap-5">
+          {pluggySources.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-faint">
+                  Pluggy-managed
+                </h3>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => syncFromPluggy.mutate(undefined)}
+                  disabled={syncFromPluggy.isPending}
+                >
+                  <RefreshCw
+                    className={cn(
+                      "size-3.5",
+                      syncFromPluggy.isPending && "animate-spin",
                     )}
-                  </div>
-                </div>
-
-                {srcMethods.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 border-b border-border px-4 py-2.5">
-                    {srcMethods.map((m) => (
-                      <span
-                        key={m}
-                        className="rounded-full bg-surface-2 px-2 py-0.5 text-[10.5px] font-medium uppercase tracking-wider text-text-muted"
-                      >
-                        {PAYMENT_METHOD_LABEL[m]}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                <div>
-                  {srcAccounts.length === 0 ? (
-                    <div className="px-4 py-4 text-sm text-text-muted">
-                      No accounts inside this source yet.
-                    </div>
-                  ) : (
-                    <table className="w-full border-collapse">
-                      <tbody>
-                        {srcAccounts.map((acc) => {
-                          const balance = balancesQ.data?.get(acc.id);
-                          const accArchived = !!acc.archived_at;
-                          const ccUsed = ccOutstandingQ.data?.get(acc.id) ?? 0;
-                          return (
-                            <tr
-                              key={acc.id}
-                              className={cn(
-                                "group border-b border-border last:border-b-0 hover:bg-surface-2/60",
-                                accArchived && "opacity-60",
-                              )}
-                            >
-                              <td className="px-4 py-3 text-[13.5px]">
-                                <div className="flex items-center gap-2">
-                                  <span
-                                    className="h-2 w-2 shrink-0 rounded-sm"
-                                    style={{
-                                      background: src.color ?? "#A8A29E",
-                                    }}
-                                  />
-                                  <div className="min-w-0">
-                                    <div className="font-medium text-text">
-                                      {ACCOUNT_TYPE_LABEL[acc.type]}
-                                      {accArchived && (
-                                        <span className="ml-2 text-[10.5px] font-medium uppercase tracking-wider text-text-faint">
-                                          archived
-                                        </span>
-                                      )}
-                                    </div>
-                                    {acc.type === "checking" &&
-                                      acc.credit_limit_cents != null && (
-                                        <div className="text-[11.5px] text-text-faint">
-                                          CC limit{" "}
-                                          {fmtMoney(acc.credit_limit_cents, {
-                                            currency: acc.currency,
-                                          })}
-                                        </div>
-                                      )}
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="px-4 py-3 text-right text-[13.5px]">
-                                <div className="num font-semibold">
-                                  {balance !== undefined ? (
-                                    fmtMoney(balance, { currency: acc.currency })
-                                  ) : (
-                                    <span className="text-text-faint">…</span>
-                                  )}
-                                </div>
-                                {acc.type === "checking" && ccUsed > 0 && (
-                                  <div className="text-[11px] text-text-faint">
-                                    CC outstanding{" "}
-                                    <span className="text-expense">
-                                      {fmtMoney(ccUsed, {
-                                        currency: acc.currency,
-                                      })}
-                                    </span>
-                                  </div>
-                                )}
-                              </td>
-                              <td className="px-4 py-3 text-right">
-                                <div className="flex justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setAccountDialog({ mode: "edit", account: acc })
-                                    }
-                                    className="rounded-md p-1 text-text-faint hover:bg-surface-2 hover:text-text"
-                                    aria-label={`Edit ${acc.name}`}
-                                  >
-                                    <Pencil className="size-4" />
-                                  </button>
-                                  {!accArchived && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setArchiveAccountTarget(acc)}
-                                      className="rounded-md p-1 text-text-faint hover:bg-surface-2 hover:text-text"
-                                      aria-label={`Archive ${acc.name}`}
-                                    >
-                                      <Archive className="size-4" />
-                                    </button>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-
-                {!isArchived && (
-                  <div className="border-t border-border px-4 py-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setAccountDialog({ mode: "create", sourceId: src.id })
-                      }
-                      className="text-xs text-text-muted hover:text-text"
-                    >
-                      + Add account to {src.name}
-                    </button>
-                  </div>
-                )}
+                  />
+                  {syncFromPluggy.isPending
+                    ? "Syncing…"
+                    : "Sync from Pluggy"}
+                </Button>
               </div>
-            );
-          })}
+              <div className="flex flex-col gap-3">
+                {pluggySources.map((src) => renderSourceCard(src))}
+              </div>
+            </div>
+          )}
+          {manualSources.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-faint">
+                Manual
+              </h3>
+              <div className="flex flex-col gap-3">
+                {manualSources.map((src) => renderSourceCard(src))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -1,3 +1,5 @@
+import { CheckCircle2, XCircle } from "lucide-react";
+
 import {
   Card,
   CardContent,
@@ -9,10 +11,23 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/features/auth/auth-context";
 import { useCategories } from "@/features/categories/queries";
 import { SourcesSection } from "@/features/settings/sources-section";
+import { useSyncLog } from "@/features/sources/pluggy-queries";
 import { useSources } from "@/features/sources/queries";
 import { useTransactions } from "@/features/transactions/queries";
 import { cn } from "@/lib/utils";
 import { useUIStore } from "@/stores/ui-store";
+
+function timeAgo(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const ms = Date.now() - new Date(iso).getTime();
+  const min = Math.floor(ms / 60_000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const d = Math.floor(hr / 24);
+  return `${d}d ago`;
+}
 
 const THEMES = ["light", "dark"] as const;
 
@@ -113,18 +128,95 @@ function DataTab() {
   const categories = useCategories();
   const transactions = useTransactions();
   return (
+    <div className="flex flex-col gap-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Supabase connection</CardTitle>
+          <CardDescription>
+            Live counts from your project (proves RLS + queries are wired). CSV
+            import / JSON export land in step 12.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-3 gap-3">
+          <ConnCell label="Sources" query={sources} />
+          <ConnCell label="Categories" query={categories} />
+          <ConnCell label="Transactions" query={transactions} />
+        </CardContent>
+      </Card>
+
+      <RecentSyncsCard />
+    </div>
+  );
+}
+
+function RecentSyncsCard() {
+  const log = useSyncLog(30);
+  return (
     <Card>
       <CardHeader>
-        <CardTitle>Supabase connection</CardTitle>
+        <CardTitle>Recent syncs</CardTitle>
         <CardDescription>
-          Live counts from your project (proves RLS + queries are wired). CSV
-          import / JSON export land in step 12.
+          The last 30 Pluggy sync runs and webhook events for your account.
+          Failed runs surface their error message inline.
         </CardDescription>
       </CardHeader>
-      <CardContent className="grid grid-cols-3 gap-3">
-        <ConnCell label="Sources" query={sources} />
-        <ConnCell label="Categories" query={categories} />
-        <ConnCell label="Transactions" query={transactions} />
+      <CardContent>
+        {log.isLoading ? (
+          <div className="text-sm text-text-muted">Loading…</div>
+        ) : (log.data ?? []).length === 0 ? (
+          <div className="text-sm text-text-muted">
+            No syncs yet. Hit “Sync from Pluggy” in the Sources tab.
+          </div>
+        ) : (
+          <ul className="flex flex-col divide-y divide-border">
+            {(log.data ?? []).map((entry) => {
+              const isOk = entry.status === "ok";
+              const txns =
+                (entry.counts as { transactionsUpserted?: number } | null)
+                  ?.transactionsUpserted ?? 0;
+              const accs =
+                (entry.counts as { accountsUpserted?: number } | null)
+                  ?.accountsUpserted ?? 0;
+              const evt = (entry.counts as { event?: string } | null)?.event;
+              const summary = evt
+                ? evt
+                : `${txns} txns · ${accs} accounts`;
+              return (
+                <li
+                  key={entry.id}
+                  className="flex items-start gap-3 py-2 text-[13px]"
+                >
+                  {isOk ? (
+                    <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-income" />
+                  ) : (
+                    <XCircle className="mt-0.5 size-4 shrink-0 text-expense" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-text">
+                        {entry.trigger}
+                      </span>
+                      {entry.source?.name && (
+                        <span className="text-text-muted">
+                          · {entry.source.name}
+                        </span>
+                      )}
+                      <span className="text-text-faint">
+                        · {timeAgo(entry.started_at)}
+                      </span>
+                    </div>
+                    <div className="text-text-muted">{summary}</div>
+                    {entry.error_message && (
+                      <div className="mt-0.5 text-[12px] text-expense">
+                        {entry.error_message}
+                      </div>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </CardContent>
     </Card>
   );

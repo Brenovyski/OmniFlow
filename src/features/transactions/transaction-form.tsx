@@ -25,6 +25,7 @@ import {
 import {
   PAYMENT_METHODS,
   PAYMENT_METHOD_LABEL,
+  isPluggyManaged,
   type PaymentMethod,
 } from "@/features/sources/schemas";
 import {
@@ -210,11 +211,13 @@ export function TransactionForm({
     [methodsBySource, sourceId],
   );
 
-  // Auto-pick first source on create.
+  // Auto-pick first MANUAL source on create. Pluggy-managed sources are
+  // sync-only — never default to one.
   useEffect(() => {
     if (initial) return;
-    if (!form.getValues("source_id") && activeSources.length > 0) {
-      form.setValue("source_id", activeSources[0]!.id);
+    const manual = activeSources.filter((s) => !isPluggyManaged(s));
+    if (!form.getValues("source_id") && manual.length > 0) {
+      form.setValue("source_id", manual[0]!.id);
     }
   }, [activeSources, form, initial]);
 
@@ -330,9 +333,17 @@ export function TransactionForm({
   });
 
   const errors = form.formState.errors;
+  const editingPluggyRow = !!initial?.pluggy_transaction_id;
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      {editingPluggyRow && (
+        <div className="rounded-md border border-border bg-surface-2 px-3 py-2 text-[12px] text-text-muted">
+          <strong className="text-text">Synced from Pluggy.</strong> Bank-truth
+          fields (amount, date) cannot be edited. Your edits to other fields
+          will not be overwritten by future syncs.
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="tx-type">Type</Label>
@@ -362,6 +373,12 @@ export function TransactionForm({
             id="tx-amount"
             inputMode="decimal"
             placeholder="0.00"
+            disabled={editingPluggyRow}
+            title={
+              editingPluggyRow
+                ? "Bank-truth field — cannot be edited"
+                : undefined
+            }
             {...form.register("amount")}
           />
           {errors.amount && (
@@ -400,11 +417,23 @@ export function TransactionForm({
                   <SelectValue placeholder="Choose…" />
                 </SelectTrigger>
                 <SelectContent>
-                  {activeSources.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name}
-                    </SelectItem>
-                  ))}
+                  {activeSources.map((s) => {
+                    // On CREATE, Pluggy-managed sources are sync-only.
+                    // On EDIT, allow changes (still respects sticky-edit).
+                    const lockForCreate = !initial && isPluggyManaged(s);
+                    return (
+                      <SelectItem
+                        key={s.id}
+                        value={s.id}
+                        disabled={lockForCreate}
+                      >
+                        {s.name}
+                        {lockForCreate && (
+                          <span className="ml-2 text-text-faint">(sync only)</span>
+                        )}
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             )}
@@ -575,9 +604,18 @@ export function TransactionForm({
           control={form.control}
           name="date"
           render={({ field }) => (
-            <DatePicker value={field.value} onChange={field.onChange} />
+            <DatePicker
+              value={field.value}
+              onChange={field.onChange}
+              disabled={editingPluggyRow}
+            />
           )}
         />
+        {editingPluggyRow && (
+          <span className="text-[11px] text-text-faint">
+            Bank-truth field — cannot be edited.
+          </span>
+        )}
         {errors.date && (
           <span className="text-xs text-expense">{errors.date.message}</span>
         )}
