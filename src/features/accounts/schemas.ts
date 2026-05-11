@@ -18,6 +18,16 @@ export const AccountSchema = z.object({
   archived_at: z.string().nullable(),
   created_at: z.string(),
   updated_at: z.string(),
+  pluggy_account_id: z.string().nullable().default(null),
+  pluggy_cc_account_id: z.string().nullable().default(null),
+  pluggy_subtype: z.string().nullable().default(null),
+  pluggy_owner: z.string().nullable().default(null),
+  pluggy_marketing_name: z.string().nullable().default(null),
+  pluggy_available_credit_cents: z.number().int().nullable().default(null),
+  pluggy_balance_due_date: z.string().nullable().default(null),
+  pluggy_balance_close_date: z.string().nullable().default(null),
+  pluggy_cc_brand: z.string().nullable().default(null),
+  user_edited_fields: z.array(z.string()).default([]),
 });
 
 export type Account = z.infer<typeof AccountSchema>;

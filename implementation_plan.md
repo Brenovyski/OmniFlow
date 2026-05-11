@@ -165,15 +165,45 @@ After 7b, several UX refinements landed in the same commit (no schema needed bey
 
 The `## Critical files` list and Sequencing diagram below reflect the renumbering.
 
-### Step 8 — Migration 007 + Investments page
+### Step 7.5 — Pluggy Open Finance integration
 
-- `supabase/migrations/007_holdings.sql`:
-  - `create table holdings (id uuid pk, user_id, account_id references accounts, ticker, name, shares numeric(20,6), avg_cost_cents bigint, current_price_cents bigint, currency, notes text, timestamps)`. RLS policies in same migration.
-  - `alter table transactions add column holding_id uuid references holdings(id) on delete set null`.
-- New `src/features/investments/{schemas.ts, queries.ts, mutations.ts, holdings-table.tsx, holding-form.tsx, investments-page.tsx (rewrite)}`.
+Auto-fetch financial data (accounts, transactions, credit-card outstanding, investment holdings) from the user's banks via Pluggy (read-only), preserving manual entry for institutions Pluggy doesn't cover, with sticky user edits and forever-retention.
+
+**Pattern B / Data Passport.** Items are connected externally at meu.pluggy.ai; OmniFlow consumes them via the Pluggy API as the registered "Demo App". No Connect Widget in OmniFlow (deferred to 7.5b if/when needed).
+
+The full design and step-by-step plan are pinned at:
+- `docs/superpowers/specs/2026-05-10-pluggy-step-7.5-design.md` — design rationale (architecture, sticky-edit rules, CC auto-link, schema choices)
+- `docs/superpowers/plans/2026-05-10-pluggy-step-7.5.md` — phase-by-phase implementation plan with TDD steps, file paths, and verification
+
+Phase summary (six commits land sequentially):
+
+- **Phase A — Migration 007 + Zod schemas.** `007_pluggy_and_holdings.sql` adds Pluggy linkage columns (sources, accounts, transactions), the new `holdings` table (with Pluggy investment fields), and `pluggy_sync_log`. Combines what was previously scoped as a separate "step 8 holdings migration" into one shipment so the merge module has a target table from day one. Zod schemas updated to match. Migrations 008 (recurring) and 009 (budgets) keep their numbers.
+- **Phase B — Merge module (TDD).** `supabase/functions/_shared/pluggy-merge.ts` exports `mergeTransaction`, `mergeAccount` (with CC auto-link), `mergeHolding`, `mergeSource`. Sticky `user_edited_fields[]` and never-resurrect-deleted-rows tested via Deno's built-in test runner.
+- **Phase C — Edge Functions.** `pluggy-sync` (JWT-auth'd, walks `/items` → accounts → investments → 90-day transactions on initial / 1-day-overlap on resync) and `pluggy-webhook` (auth via static `Authorization` header registered with Pluggy's `POST /webhooks` API — Pluggy doesn't HMAC-sign bodies). Both reuse the merge module; secrets pushed via `pnpm dlx supabase secrets set`. Webhook URL registered with Pluggy via API call (the dashboard webhook UI doesn't accept custom headers).
+- **Phase D — Client mutations & queries.** `useSyncFromPluggy()` posts to the Edge Function and invalidates `['sources','accounts','transactions','holdings','account-balances','pluggy-sync-log']`. `useSyncLog()` reads the latest entries. `useUpdateTransaction` / `useUpdateAccount` retrofitted to append changed fields to `user_edited_fields[]` only when the row is Pluggy-managed.
+- **Phase E — UI.** Sources page splits into PLUGGY-MANAGED / MANUAL lanes with status dots and a top-level Sync button. Transactions table gains a `↻` indicator on Pluggy rows (with a pencil overlay if user-edited) and a "Reversed by bank" strikethrough for `pluggy_deleted_at`. Transaction edit dialog disables `amount` + `date` on Pluggy rows and shows a sticky-edit notice. Pluggy-managed sources are disabled in the new-transaction source picker. New "Recent syncs" card in Settings → Data.
+- **Phase F — Smoke test + finalize.** 10-step sandbox checklist (connect at meu.pluggy → sync → edit → re-sync → soft-delete → webhook events → CC auto-link). On green, swap to production Pluggy app, repeat against real Nubank / BTG.
+
+**Locked decisions (do not re-litigate per phase):**
+
+- **No JSONB on transactions/accounts/holdings.** Every Pluggy field gets an explicit typed column. JSONB only on `sources.pluggy_last_error` (unbounded shape) and `pluggy_sync_log.counts` (debug-only).
+- **Pluggy-managed sources lock manual entry.** A source is either Pluggy-managed or manual; the new-transaction form filters Pluggy sources out of the picker.
+- **Bank-truth fields (`amount_cents`, `date`, `currency`) never user-editable on Pluggy rows.** Disabled in the edit dialog when `pluggy_transaction_id is not null`.
+- **CC auto-link.** A Pluggy CC account auto-links to the sibling checking under the same Item via `accounts.pluggy_cc_account_id`. CC charges arrive with `payment_method='credit_card'` against the checking, leaving outstanding balance handling unchanged from step 7's model.
+- **Webhook auth via Pluggy's custom-headers feature.** Pluggy delivers webhooks with whatever headers were registered at create time; we use `Authorization: Bearer <PLUGGY_WEBHOOK_SECRET>`. The Pluggy dashboard cannot set headers — webhook registration goes through the API.
+- **Initial-import depth: 90 days.** Webhooks fill in everything after the cut. "Load older history" deferred to 7.5b.
+
+After 7.5 lands, **Step 8** (Investments page UI) is UI-only — the `holdings` table and `transactions.holding_id` FK already exist.
+
+### Step 8 — Investments page (UI-only — holdings already exist)
+
+The `holdings` table and `transactions.holding_id` FK shipped in 7.5's migration 007. This step is now strictly the React surfaces.
+
+- New `src/features/investments/{queries.ts, mutations.ts, holdings-table.tsx, holding-form.tsx, investments-page.tsx (rewrite)}` (schemas already live at `src/features/holdings/schemas.ts` from 7.5 phase A).
 - 4 KPI cards: Portfolio value (sum of `shares * current_price_cents`), All-time gain $/% (vs `shares * avg_cost_cents`), Cost basis, MTD contributions (sum of transactions where `type='investment'` MTD).
 - Holdings table with click-to-edit. "Update price" inline action — manual entry, no quotes API in v1.
 - "Log buy/sell" opens the existing transaction dialog pre-filtered to type=investment with `holding_id` linked. Adjust `useCreateTransaction` to pass through `holding_id`.
+- Pluggy-imported holdings render with the same `↻` indicator pattern as transactions; the form disables bank-truth fields (`current_price_cents`, `pluggy_*`) on Pluggy rows.
 
 ### Step 9 — Insights: calendar heatmap
 
