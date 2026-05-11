@@ -54,6 +54,22 @@ const corsHeaders = {
 };
 
 Deno.serve(async (req) => {
+  try {
+    return await handleRequest(req);
+  } catch (err) {
+    // Top-level safety net so any uncaught throw surfaces in the body
+    // instead of an opaque EDGE_FUNCTION_ERROR.
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error("pluggy-sync uncaught:", message, stack);
+    return new Response(
+      JSON.stringify({ error: "uncaught", detail: message, stack }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+});
+
+async function handleRequest(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -231,31 +247,42 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Transactions: per-Pluggy-account. The SDK's fetchTransactions takes
-      // accountId, not itemId. Initial pull = last 90d, resync = last_synced
-      // - 1 day overlap to catch PENDING → POSTED promotions.
+      // Transactions: per-Pluggy-account. fetchTransactions takes accountId
+      // (not itemId) and is the page-based variant that accepts `from`.
+      // fetchAllTransactions exists too but uses the cursor variant which
+      // rejects `from`. Initial pull = last 90d, resync = last_synced - 1d.
       const fromDate = computeFromDate(target.pluggy_last_synced_at);
       for (const acc of pluggyAccounts) {
-        try {
-          const txs = (await pluggy.fetchAllTransactions(acc.id, {
-            from: fromDate,
-          })) as unknown[];
-          for (const tx of txs) {
-            const result = await mergeTransaction(
-              tx as Parameters<typeof mergeTransaction>[0],
-              ctx,
-            );
-            if (result.kind === "inserted" || result.kind === "updated") {
-              counts.transactionsUpserted++;
-            } else {
-              counts.transactionsSkipped++;
+        let page = 1;
+        const pageSize = 500;
+        while (true) {
+          try {
+            const resp = (await pluggy.fetchTransactions(acc.id, {
+              from: fromDate,
+              page,
+              pageSize,
+            })) as { results?: unknown[]; total?: number };
+            const results = resp.results ?? [];
+            for (const tx of results) {
+              const result = await mergeTransaction(
+                tx as Parameters<typeof mergeTransaction>[0],
+                ctx,
+              );
+              if (result.kind === "inserted" || result.kind === "updated") {
+                counts.transactionsUpserted++;
+              } else {
+                counts.transactionsSkipped++;
+              }
             }
+            if (results.length < pageSize) break;
+            page++;
+          } catch (err) {
+            errors.push({
+              itemId,
+              message: `transactions for account ${acc.id} (page ${page}): ${(err as Error).message}`,
+            });
+            break;
           }
-        } catch (err) {
-          errors.push({
-            itemId,
-            message: `transactions for account ${acc.id}: ${(err as Error).message}`,
-          });
         }
       }
 
@@ -287,7 +314,7 @@ Deno.serve(async (req) => {
     status: 200,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
-});
+}
 
 function computeFromDate(lastSyncedAt: string | null): string {
   if (lastSyncedAt) {

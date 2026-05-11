@@ -138,10 +138,10 @@ Deno.serve(async (req) => {
 
       case "transactions/created":
       case "transactions/updated": {
-        // Pluggy's fetchTransactions takes ACCOUNT id, not item id. So on a
-        // bulk "created" event we walk the item's accounts and refresh the
-        // last 7 days for each. The merge module's unique index makes this
-        // idempotent — reprocessing the same tx is a no-op update.
+        // fetchTransactions takes ACCOUNT id (not item id) — and is the
+        // page-variant that accepts `from`. fetchAllTransactions's cursor
+        // variant doesn't, hence the explicit pagination loop here too.
+        // Idempotent via the (user_id, pluggy_transaction_id) unique index.
         const d = new Date();
         d.setDate(d.getDate() - 7);
         const fromDate = d.toISOString().split("T")[0];
@@ -150,14 +150,23 @@ Deno.serve(async (req) => {
             results: Array<{ id: string }>;
           };
           for (const acc of accResp.results ?? []) {
-            const txs = (await pluggy.fetchAllTransactions(acc.id, {
-              from: fromDate,
-            })) as unknown[];
-            for (const tx of txs) {
-              await mergeTransaction(
-                tx as Parameters<typeof mergeTransaction>[0],
-                ctx,
-              );
+            let page = 1;
+            const pageSize = 500;
+            while (true) {
+              const resp = (await pluggy.fetchTransactions(acc.id, {
+                from: fromDate,
+                page,
+                pageSize,
+              })) as { results?: unknown[] };
+              const results = resp.results ?? [];
+              for (const tx of results) {
+                await mergeTransaction(
+                  tx as Parameters<typeof mergeTransaction>[0],
+                  ctx,
+                );
+              }
+              if (results.length < pageSize) break;
+              page++;
             }
           }
         } catch (err) {

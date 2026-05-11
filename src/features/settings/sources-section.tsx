@@ -299,7 +299,12 @@ export function SourcesSection() {
                           />
                           <div className="min-w-0">
                             <div className="font-medium text-text">
-                              {ACCOUNT_TYPE_LABEL[acc.type]}
+                              {acc.pluggy_account_id
+                                ? acc.name
+                                : ACCOUNT_TYPE_LABEL[acc.type]}
+                              <span className="ml-2 text-[10.5px] font-medium uppercase tracking-wider text-text-faint">
+                                {ACCOUNT_TYPE_LABEL[acc.type]}
+                              </span>
                               {accArchived && (
                                 <span className="ml-2 text-[10.5px] font-medium uppercase tracking-wider text-text-faint">
                                   archived
@@ -307,7 +312,8 @@ export function SourcesSection() {
                               )}
                             </div>
                             {acc.type === "checking" &&
-                              acc.credit_limit_cents != null && (
+                              acc.credit_limit_cents != null &&
+                              acc.credit_limit_cents > 0 && (
                                 <div className="text-[11.5px] text-text-faint">
                                   CC limit{" "}
                                   {fmtMoney(acc.credit_limit_cents, {

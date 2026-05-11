@@ -104,25 +104,41 @@ async function resolveAccount(
 export async function mergeSource(
   pluggyItem: {
     id: string;
-    connector: { id: number; name: string; primaryColor?: string };
+    connector?: { id?: number; name?: string; primaryColor?: string } | null;
     status?: string;
   },
   userId: string,
   sb: MergeContext["sb"],
 ): Promise<MergeResult> {
+  if (!pluggyItem || typeof pluggyItem.id !== "string") {
+    throw new Error(
+      `mergeSource: invalid pluggyItem (got ${JSON.stringify(pluggyItem).slice(0, 200)})`,
+    );
+  }
+
+  // Sources don't have user_edited_fields by design — there are no mergeable
+  // fields here that the user can override (pluggy_status / connector_id /
+  // last_synced_at are all bank-truth, and the source name/color the user
+  // edits in the dialog don't get re-set from Pluggy after first insert).
   const { data: existing } = await sb
     .from("sources")
-    .select("id, user_edited_fields")
+    .select("id")
     .match({ user_id: userId, pluggy_item_id: pluggyItem.id })
     .maybeSingle();
 
   const status = mapItemStatus(pluggyItem.status);
+  const connectorId = pluggyItem.connector?.id ?? null;
+  const connectorName = pluggyItem.connector?.name ?? "Pluggy item";
+  const connectorColor =
+    (pluggyItem.connector?.primaryColor &&
+      `#${pluggyItem.connector.primaryColor.replace(/^#/, "")}`) ||
+    "#FACC15";
 
   if (existing) {
     await sb
       .from("sources")
       .update({
-        pluggy_connector_id: pluggyItem.connector.id,
+        pluggy_connector_id: connectorId,
         pluggy_status: status,
         pluggy_last_synced_at: new Date().toISOString(),
       })
@@ -134,18 +150,17 @@ export async function mergeSource(
     .from("sources")
     .insert({
       user_id: userId,
-      name: pluggyItem.connector.name,
+      name: connectorName,
       kind: "bank",
-      color: pluggyItem.connector.primaryColor ?? "#FACC15",
+      color: connectorColor,
       pluggy_item_id: pluggyItem.id,
-      pluggy_connector_id: pluggyItem.connector.id,
+      pluggy_connector_id: connectorId,
       pluggy_status: status,
       pluggy_last_synced_at: new Date().toISOString(),
-      user_edited_fields: [],
     })
     .select("id")
     .single();
-  if (error) throw error;
+  if (error) throw new Error(`mergeSource insert failed: ${error.message}`);
   return { kind: "inserted", id: inserted!.id as string };
 }
 
