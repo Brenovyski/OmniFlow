@@ -73,6 +73,16 @@ export function useCreateAccount() {
   });
 }
 
+/**
+ * Mergeable fields tracked for sticky-edit on Pluggy-managed accounts.
+ * Mirrors ACCOUNT_MERGEABLE in supabase/functions/_shared/types.ts.
+ */
+const ACCOUNT_TRACKABLE_FIELDS = [
+  "type",
+  "name",
+  "currency",
+] as const satisfies ReadonlyArray<keyof NewAccountInput>;
+
 export function useUpdateAccount() {
   const qc = useQueryClient();
   const { user } = useAuth();
@@ -80,9 +90,31 @@ export function useUpdateAccount() {
 
   return useMutation({
     mutationFn: async ({ id, patch }: UpdateAccountInput) => {
+      // Sticky-edit: only relevant when the account is Pluggy-managed.
+      const { data: existing } = await supabase
+        .from("accounts")
+        .select("type, name, currency, user_edited_fields, pluggy_account_id")
+        .eq("id", id)
+        .single();
+
+      const updates: Record<string, unknown> = { ...patch };
+      if (existing?.pluggy_account_id) {
+        const edited = new Set<string>(
+          (existing.user_edited_fields as string[] | null) ?? [],
+        );
+        for (const f of ACCOUNT_TRACKABLE_FIELDS) {
+          const next = patch[f];
+          const prev = existing[f as keyof typeof existing];
+          if (next !== undefined && next !== prev) {
+            edited.add(f);
+          }
+        }
+        updates.user_edited_fields = Array.from(edited);
+      }
+
       const { data, error } = await supabase
         .from("accounts")
-        .update(patch)
+        .update(updates)
         .eq("id", id)
         .select("*")
         .single();

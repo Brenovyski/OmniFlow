@@ -126,6 +126,20 @@ export function useCreateTransaction() {
   });
 }
 
+/**
+ * Mergeable fields tracked for sticky-edit on Pluggy-managed transactions.
+ * Mirrors TX_MERGEABLE in supabase/functions/_shared/types.ts — keep them in
+ * lockstep. When the user changes one of these on a Pluggy row, the field
+ * is appended to user_edited_fields[] so future syncs skip it.
+ */
+const TX_TRACKABLE_FIELDS = [
+  "description",
+  "category_id",
+  "type",
+  "payment_method",
+  "account_id",
+] as const satisfies ReadonlyArray<keyof NewTransactionInput>;
+
 export function useUpdateTransaction() {
   const qc = useQueryClient();
   const { user } = useAuth();
@@ -133,9 +147,33 @@ export function useUpdateTransaction() {
 
   return useMutation({
     mutationFn: async ({ id, patch }: UpdateTransactionInput) => {
+      // Sticky-edit: only relevant when the row is Pluggy-managed.
+      const { data: existing } = await supabase
+        .from("transactions")
+        .select(
+          "description, category_id, type, payment_method, account_id, user_edited_fields, pluggy_transaction_id",
+        )
+        .eq("id", id)
+        .single();
+
+      const updates: Record<string, unknown> = { ...patch };
+      if (existing?.pluggy_transaction_id) {
+        const edited = new Set<string>(
+          (existing.user_edited_fields as string[] | null) ?? [],
+        );
+        for (const f of TX_TRACKABLE_FIELDS) {
+          const next = patch[f];
+          const prev = existing[f as keyof typeof existing];
+          if (next !== undefined && next !== prev) {
+            edited.add(f);
+          }
+        }
+        updates.user_edited_fields = Array.from(edited);
+      }
+
       const { data, error } = await supabase
         .from("transactions")
-        .update(patch)
+        .update(updates)
         .eq("id", id)
         .select("*")
         .single();
