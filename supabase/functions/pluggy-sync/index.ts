@@ -1,11 +1,27 @@
-// pluggy-sync — JWT-authenticated. Discovers Pluggy items associated with
-// our Demo App (via Data Passport / meu.pluggy connections), then walks
-// each item's accounts, investments, and transactions through the shared
-// merge module. Logs every run to pluggy_sync_log.
+// pluggy-sync — JWT-authenticated. Iterates the user's known Pluggy-managed
+// sources, walks each through fetchItem → fetchAccounts → fetchInvestments
+// → fetchAllTransactions(per account), upserting via the shared merge module.
+// Logs every run to pluggy_sync_log.
 //
-// Body: { sourceId?: string }  — omit to sync all sources.
+// Pluggy's REST API does NOT expose a "list all items shared with the app"
+// endpoint (only GET /items/{id}), so items must first be REGISTERED in
+// OmniFlow via the Connect Pluggy item dialog. The sync function accepts a
+// `connectItemId` body param to register-and-sync in one call.
 //
-// Returns: { counts, errors }.
+// SDK signatures (verified against pluggy-node@master src/client.ts):
+//   fetchItem(id)                                  → Item
+//   fetchAccounts(itemId)                          → PageResponse<Account>
+//   fetchInvestments(itemId)                       → PageResponse<Investment>
+//   fetchAllTransactions(ACCOUNT_ID, { from, ... })→ Transaction[]
+//                                                    ^^^ takes accountId,
+//                                                    not itemId — so we
+//                                                    iterate each Pluggy
+//                                                    account.
+//
+// Body: { sourceId?: string, connectItemId?: string }
+//   • sourceId given      → sync just that one source
+//   • connectItemId given → register the item (insert source) then sync it
+//   • neither             → sync all known Pluggy-managed sources
 
 import { createClient } from "@supabase/supabase-js";
 import { PluggyClient } from "pluggy-sdk";
@@ -50,7 +66,6 @@ Deno.serve(async (req) => {
     });
   }
 
-  // User-bound client (validates the JWT).
   const userClient = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_ANON_KEY")!,
@@ -66,14 +81,15 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Service-role client for the merge module (bypasses RLS — we constrain
-  // every write by the derived user_id).
   const sb = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
-  const body = (await req.json().catch(() => ({}))) as { sourceId?: string };
+  const body = (await req.json().catch(() => ({}))) as {
+    sourceId?: string;
+    connectItemId?: string;
+  };
 
   const pluggy = new PluggyClient({
     clientId: Deno.env.get("PLUGGY_CLIENT_ID")!,
@@ -89,71 +105,116 @@ Deno.serve(async (req) => {
   };
   const errors: SyncError[] = [];
 
-  // 1. Discover items shared with this Demo App via Data Passport.
-  let allItems: Array<{ id: string; connector: { id: number; name: string; primaryColor?: string }; status?: string }>;
-  try {
-    const itemsResp = await pluggy.fetchItems();
-    allItems = (itemsResp as { results: typeof allItems }).results ?? [];
-  } catch (err) {
-    await sb.from("pluggy_sync_log").insert({
-      user_id: user.id,
-      source_id: body.sourceId ?? null,
-      trigger: body.sourceId ? "manual" : "initial",
-      status: "error",
-      completed_at: new Date().toISOString(),
-      error_message: `pluggy.fetchItems failed: ${(err as Error).message}`,
-    });
+  // 1. Build the list of (sourceRow, pluggyItemId) to walk.
+  type Target = {
+    id: string;
+    pluggy_item_id: string;
+    pluggy_last_synced_at: string | null;
+    isNew: boolean;
+  };
+  const targets: Target[] = [];
+
+  if (body.connectItemId) {
+    // Register-and-sync flow: validate the item exists at Pluggy first.
+    let pluggyItem;
+    try {
+      pluggyItem = await pluggy.fetchItem(body.connectItemId);
+    } catch (err) {
+      return new Response(
+        JSON.stringify({
+          error: "invalid_item",
+          detail: `Pluggy could not find item ${body.connectItemId}: ${(err as Error).message}`,
+        }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // Insert (or refresh) the source via the merge module.
+    await mergeSource(pluggyItem as Parameters<typeof mergeSource>[0], user.id, sb);
+    counts.sourcesUpserted++;
+
+    const { data: srcRow } = await sb
+      .from("sources")
+      .select("id, pluggy_item_id, pluggy_last_synced_at")
+      .eq("user_id", user.id)
+      .eq("pluggy_item_id", body.connectItemId)
+      .single();
+
+    if (srcRow) {
+      targets.push({
+        id: srcRow.id as string,
+        pluggy_item_id: srcRow.pluggy_item_id as string,
+        pluggy_last_synced_at: srcRow.pluggy_last_synced_at as string | null,
+        isNew: true,
+      });
+    }
+  } else {
+    let q = sb
+      .from("sources")
+      .select("id, pluggy_item_id, pluggy_last_synced_at")
+      .eq("user_id", user.id)
+      .not("pluggy_item_id", "is", null)
+      .is("archived_at", null);
+    if (body.sourceId) q = q.eq("id", body.sourceId);
+    const { data: known, error: knownErr } = await q;
+    if (knownErr) {
+      return new Response(
+        JSON.stringify({ error: "db_error", detail: knownErr.message }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    for (const src of known ?? []) {
+      targets.push({
+        id: src.id as string,
+        pluggy_item_id: src.pluggy_item_id as string,
+        pluggy_last_synced_at: src.pluggy_last_synced_at as string | null,
+        isNew: false,
+      });
+    }
+  }
+
+  if (targets.length === 0) {
     return new Response(
-      JSON.stringify({ error: "pluggy_unreachable", detail: (err as Error).message }),
-      { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      JSON.stringify({
+        counts,
+        errors,
+        note: "no Pluggy-managed sources registered yet — use Connect Pluggy item to add one",
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 
-  // 2. If sourceId given, narrow to that single item.
-  let targetItems = allItems;
-  if (body.sourceId) {
-    const { data: src } = await sb
-      .from("sources")
-      .select("pluggy_item_id")
-      .eq("id", body.sourceId)
-      .eq("user_id", user.id)
-      .maybeSingle();
-    targetItems = allItems.filter((i) => i.id === src?.pluggy_item_id);
-  }
-
-  // 3. Walk each item.
-  for (const item of targetItems) {
+  // 2. Walk each target.
+  for (const target of targets) {
+    const itemId = target.pluggy_item_id;
     try {
-      // Source first — establishes the OmniFlow source row.
-      await mergeSource(item, user.id, sb);
-      counts.sourcesUpserted++;
+      // Refresh source connector + status.
+      if (!target.isNew) {
+        const item = await pluggy.fetchItem(itemId);
+        await mergeSource(item as Parameters<typeof mergeSource>[0], user.id, sb);
+        counts.sourcesUpserted++;
+      }
 
-      const { data: srcRow } = await sb
-        .from("sources")
-        .select("id, pluggy_last_synced_at, archived_at")
-        .eq("user_id", user.id)
-        .eq("pluggy_item_id", item.id)
-        .single();
-
-      // Archived sources pause syncing (existing data stays).
-      if (srcRow?.archived_at) continue;
-
-      const ctx = { userId: user.id, sourceId: srcRow!.id as string, sb };
+      const ctx = { userId: user.id, sourceId: target.id, sb };
 
       // Accounts (CC-link logic lives in mergeAccount).
+      let pluggyAccounts: Array<{ id: string; type?: string; subtype?: string }> = [];
       try {
-        const accResp = (await pluggy.fetchAccounts(item.id)) as { results: unknown[] };
-        for (const acc of accResp.results ?? []) {
+        const accResp = (await pluggy.fetchAccounts(itemId)) as {
+          results: typeof pluggyAccounts;
+        };
+        pluggyAccounts = accResp.results ?? [];
+        for (const acc of pluggyAccounts) {
           await mergeAccount(acc as Parameters<typeof mergeAccount>[0], ctx);
           counts.accountsUpserted++;
         }
       } catch (err) {
-        errors.push({ itemId: item.id, message: `accounts: ${(err as Error).message}` });
+        errors.push({ itemId, message: `accounts: ${(err as Error).message}` });
       }
 
       // Investments → holdings.
       try {
-        const invResp = (await pluggy.fetchInvestments(item.id)) as { results: unknown[] };
+        const invResp = (await pluggy.fetchInvestments(itemId)) as { results: unknown[] };
         for (const inv of invResp.results ?? []) {
           const result = await mergeHolding(
             inv as Parameters<typeof mergeHolding>[0],
@@ -165,24 +226,21 @@ Deno.serve(async (req) => {
         }
       } catch (err) {
         errors.push({
-          itemId: item.id,
+          itemId,
           message: `investments: ${(err as Error).message}`,
         });
       }
 
-      // Transactions: paginated. Initial = last 90d, resync = last_synced - 1d
-      // overlap to catch PENDING → POSTED promotions.
-      const fromDate = computeFromDate(srcRow?.pluggy_last_synced_at as string | null);
-      let page = 1;
-      while (true) {
+      // Transactions: per-Pluggy-account. The SDK's fetchTransactions takes
+      // accountId, not itemId. Initial pull = last 90d, resync = last_synced
+      // - 1 day overlap to catch PENDING → POSTED promotions.
+      const fromDate = computeFromDate(target.pluggy_last_synced_at);
+      for (const acc of pluggyAccounts) {
         try {
-          const txResp = (await pluggy.fetchTransactions(item.id, {
+          const txs = (await pluggy.fetchAllTransactions(acc.id, {
             from: fromDate,
-            page,
-            pageSize: 500,
-          })) as { results: unknown[]; total?: number };
-          const results = txResp.results ?? [];
-          for (const tx of results) {
+          })) as unknown[];
+          for (const tx of txs) {
             const result = await mergeTransaction(
               tx as Parameters<typeof mergeTransaction>[0],
               ctx,
@@ -193,14 +251,11 @@ Deno.serve(async (req) => {
               counts.transactionsSkipped++;
             }
           }
-          if (results.length < 500) break;
-          page++;
         } catch (err) {
           errors.push({
-            itemId: item.id,
-            message: `transactions page ${page}: ${(err as Error).message}`,
+            itemId,
+            message: `transactions for account ${acc.id}: ${(err as Error).message}`,
           });
-          break;
         }
       }
 
@@ -211,17 +266,17 @@ Deno.serve(async (req) => {
           pluggy_last_synced_at: new Date().toISOString(),
           pluggy_last_error: null,
         })
-        .eq("id", srcRow!.id);
+        .eq("id", target.id);
     } catch (err) {
-      errors.push({ itemId: item.id, message: (err as Error).message });
+      errors.push({ itemId, message: (err as Error).message });
     }
   }
 
-  // 4. Audit-log this run.
+  // 3. Audit log.
   await sb.from("pluggy_sync_log").insert({
     user_id: user.id,
     source_id: body.sourceId ?? null,
-    trigger: body.sourceId ? "manual" : "initial",
+    trigger: body.connectItemId ? "initial" : body.sourceId ? "manual" : "manual",
     status: errors.length > 0 ? "error" : "ok",
     completed_at: new Date().toISOString(),
     counts: counts as unknown as Record<string, unknown>,
@@ -237,10 +292,9 @@ Deno.serve(async (req) => {
 function computeFromDate(lastSyncedAt: string | null): string {
   if (lastSyncedAt) {
     const d = new Date(lastSyncedAt);
-    d.setDate(d.getDate() - 1); // 1d overlap
+    d.setDate(d.getDate() - 1);
     return d.toISOString().split("T")[0];
   }
-  // Initial: last 90 days.
   const d = new Date();
   d.setDate(d.getDate() - 90);
   return d.toISOString().split("T")[0];

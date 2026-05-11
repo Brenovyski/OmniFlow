@@ -1,5 +1,8 @@
-import { Archive, Pencil, Plus, RefreshCw } from "lucide-react";
+import { Archive, Link as LinkIcon, Pencil, Plus, RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
+
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 import {
   AlertDialog,
@@ -37,7 +40,10 @@ import {
   useCreateSource,
   useUpdateSource,
 } from "@/features/sources/mutations";
-import { useSyncFromPluggy } from "@/features/sources/pluggy-mutations";
+import {
+  useConnectPluggyItem,
+  useSyncFromPluggy,
+} from "@/features/sources/pluggy-mutations";
 import {
   methodsBySourceId,
   useSourcePaymentMethods,
@@ -96,6 +102,7 @@ export function SourcesSection() {
   const updateAccount = useUpdateAccount();
   const archiveAccount = useArchiveAccount();
   const syncFromPluggy = useSyncFromPluggy();
+  const connectPluggyItem = useConnectPluggyItem();
 
   const [sourceDialog, setSourceDialog] = useState<
     | { mode: "create" }
@@ -109,6 +116,8 @@ export function SourcesSection() {
     | null
   >(null);
 
+  const [connectDialogOpen, setConnectDialogOpen] = useState(false);
+  const [pluggyItemId, setPluggyItemId] = useState("");
   const [archiveSourceTarget, setArchiveSourceTarget] = useState<Source | null>(
     null,
   );
@@ -377,7 +386,7 @@ export function SourcesSection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="font-display text-lg font-semibold">Sources</h2>
           <p className="text-sm text-text-muted">
@@ -385,10 +394,33 @@ export function SourcesSection() {
             inside each.
           </p>
         </div>
-        <Button onClick={() => setSourceDialog({ mode: "create" })}>
-          <Plus className="size-3.5" />
-          Add source
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => setConnectDialogOpen(true)}
+            disabled={connectPluggyItem.isPending}
+          >
+            <LinkIcon className="size-3.5" />
+            Connect Pluggy item
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => syncFromPluggy.mutate(undefined)}
+            disabled={syncFromPluggy.isPending}
+          >
+            <RefreshCw
+              className={cn(
+                "size-3.5",
+                syncFromPluggy.isPending && "animate-spin",
+              )}
+            />
+            {syncFromPluggy.isPending ? "Syncing…" : "Sync from Pluggy"}
+          </Button>
+          <Button onClick={() => setSourceDialog({ mode: "create" })}>
+            <Plus className="size-3.5" />
+            Add source
+          </Button>
+        </div>
       </div>
 
       {sourcesQ.isLoading ? (
@@ -403,27 +435,9 @@ export function SourcesSection() {
         <div className="flex flex-col gap-5">
           {pluggySources.length > 0 && (
             <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-faint">
-                  Pluggy-managed
-                </h3>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => syncFromPluggy.mutate(undefined)}
-                  disabled={syncFromPluggy.isPending}
-                >
-                  <RefreshCw
-                    className={cn(
-                      "size-3.5",
-                      syncFromPluggy.isPending && "animate-spin",
-                    )}
-                  />
-                  {syncFromPluggy.isPending
-                    ? "Syncing…"
-                    : "Sync from Pluggy"}
-                </Button>
-              </div>
+              <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-faint">
+                Pluggy-managed
+              </h3>
               <div className="flex flex-col gap-3">
                 {pluggySources.map((src) => renderSourceCard(src))}
               </div>
@@ -449,6 +463,74 @@ export function SourcesSection() {
       >
         {showArchived ? "Hide archived" : "Show archived"}
       </button>
+
+      <Dialog
+        open={connectDialogOpen}
+        onOpenChange={(next) => {
+          setConnectDialogOpen(next);
+          if (!next) setPluggyItemId("");
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Connect a Pluggy item</DialogTitle>
+            <DialogDescription>
+              Pluggy doesn&rsquo;t expose a list-items API, so OmniFlow needs
+              the item ID. Open{" "}
+              <a
+                href="https://meu.pluggy.ai"
+                target="_blank"
+                rel="noreferrer"
+                className="text-brand underline"
+              >
+                meu.pluggy.ai
+              </a>
+              , pick the connection, and copy its ID — then paste it below.
+              We&rsquo;ll validate, save the source, and pull the last 90
+              days.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!pluggyItemId.trim()) return;
+              connectPluggyItem.mutate(pluggyItemId.trim(), {
+                onSuccess: () => {
+                  setConnectDialogOpen(false);
+                  setPluggyItemId("");
+                },
+              });
+            }}
+            className="flex flex-col gap-3"
+          >
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="pluggy-item-id">Pluggy item ID</Label>
+              <Input
+                id="pluggy-item-id"
+                placeholder="00000000-0000-0000-0000-000000000000"
+                value={pluggyItemId}
+                onChange={(e) => setPluggyItemId(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setConnectDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={connectPluggyItem.isPending || !pluggyItemId.trim()}
+              >
+                {connectPluggyItem.isPending ? "Connecting…" : "Connect & sync"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={sourceDialog !== null}

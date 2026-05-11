@@ -136,39 +136,34 @@ Deno.serve(async (req) => {
           .eq("id", source.id);
         break;
 
-      case "transactions/created": {
-        // Pluggy provides createdTransactionsLink to fetch just the new ones.
-        // Fall back to a delta fetch if the link is missing.
-        if (event.createdTransactionsLink) {
-          // The SDK's fetchTransactions takes itemId + filters; if a "by link"
-          // helper isn't available we just refresh the last 7 days.
-          const d = new Date();
-          d.setDate(d.getDate() - 7);
-          const txResp = (await pluggy.fetchTransactions(event.itemId, {
-            from: d.toISOString().split("T")[0],
-            pageSize: 500,
-          })) as { results: unknown[] };
-          for (const tx of txResp.results ?? []) {
-            await mergeTransaction(
-              tx as Parameters<typeof mergeTransaction>[0],
-              ctx,
-            );
-          }
-        }
-        break;
-      }
-
+      case "transactions/created":
       case "transactions/updated": {
-        for (const txId of event.transactionIds ?? []) {
-          try {
-            const tx = await pluggy.fetchTransaction(txId);
-            await mergeTransaction(
-              tx as Parameters<typeof mergeTransaction>[0],
-              ctx,
-            );
-          } catch (err) {
-            console.warn(`failed to update tx ${txId}: ${(err as Error).message}`);
+        // Pluggy's fetchTransactions takes ACCOUNT id, not item id. So on a
+        // bulk "created" event we walk the item's accounts and refresh the
+        // last 7 days for each. The merge module's unique index makes this
+        // idempotent — reprocessing the same tx is a no-op update.
+        const d = new Date();
+        d.setDate(d.getDate() - 7);
+        const fromDate = d.toISOString().split("T")[0];
+        try {
+          const accResp = (await pluggy.fetchAccounts(event.itemId)) as {
+            results: Array<{ id: string }>;
+          };
+          for (const acc of accResp.results ?? []) {
+            const txs = (await pluggy.fetchAllTransactions(acc.id, {
+              from: fromDate,
+            })) as unknown[];
+            for (const tx of txs) {
+              await mergeTransaction(
+                tx as Parameters<typeof mergeTransaction>[0],
+                ctx,
+              );
+            }
           }
+        } catch (err) {
+          console.warn(
+            `transactions sync for item ${event.itemId}: ${(err as Error).message}`,
+          );
         }
         break;
       }
